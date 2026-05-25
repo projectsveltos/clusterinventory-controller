@@ -1,0 +1,13 @@
+# Adds namespace to all resources.
+namespace: projectsveltos
+
+namePrefix: clusterinventory-
+
+resources:
+- ../rbac
+- ../manager
+
+patches:
+- path: manager_auth_proxy_patch.yaml
+- path: manager_image_patch.yaml
+- path: manager_pull_policy.yaml
