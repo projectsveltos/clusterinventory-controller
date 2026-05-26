@@ -28,6 +28,7 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	cliflag "k8s.io/component-base/cli/flag"
 	"k8s.io/klog/v2"
+	"sigs.k8s.io/cluster-inventory-api/pkg/access"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -52,6 +53,7 @@ var (
 	healthAddr           string
 	profilerAddress      string
 	concurrentReconciles int
+	providerFile         string
 )
 
 // Add RBAC for the authorized diagnostics endpoint.
@@ -101,10 +103,20 @@ func main() {
 		libsveltosv1beta1.Component("ClusterInventoryController"), ctrl.Log.WithName("log-setter"),
 		ctrl.GetConfigOrDie())
 
+	var accessCfg *access.Config
+	if providerFile != "" {
+		accessCfg, err = access.NewFromFile(providerFile)
+		if err != nil {
+			setupLog.Error(err, "unable to load provider file", "path", providerFile)
+			os.Exit(1)
+		}
+	}
+
 	if err = (&controller.ClusterProfileReconciler{
 		Client:               mgr.GetClient(),
 		Scheme:               mgr.GetScheme(),
 		ConcurrentReconciles: concurrentReconciles,
+		AccessConfig:         accessCfg,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ClusterProfile")
 		os.Exit(1)
@@ -155,6 +167,10 @@ func initFlags(fs *pflag.FlagSet) {
 	fs.DurationVar(&syncPeriod, "sync-period", defaultSyncPeriod*time.Minute,
 		fmt.Sprintf("Minimum interval at which watched resources are reconciled. Default: %d minutes",
 			defaultSyncPeriod))
+
+	fs.StringVar(&providerFile, "clusterprofile-provider-file", "",
+		"Path to the JSON provider configuration file enabling exec-plugin access providers. "+
+			"When empty only the kubeconfig-secretreader provider is supported.")
 }
 
 func setupChecks(mgr ctrl.Manager) {
