@@ -140,16 +140,27 @@ K8S_VERSION := v1.35.0
 endif
 
 KIND_CONFIG ?= kind-cluster.yaml
+WORKLOAD_KIND_CONFIG ?= workload-kind-cluster.yaml
 CONTROL_CLUSTER_NAME ?= sveltos-management
+WORKLOAD_CLUSTER_NAME ?= fv-workload
+SVELTOS_NETWORK_NAME ?= sveltos-kind-network
 TIMEOUT ?= 10m
 NUM_NODES ?= 1
+EXEC_PLUGIN_BINARY ?= test/fv/exec-plugin-linux-amd64
 
 .PHONY: kind-test
 kind-test: test create-cluster fv ## Build docker image; start kind cluster; load docker image; run fv
 
+.PHONY: kind-test-exec-plugin
+kind-test-exec-plugin: test create-cluster-fv fv-exec-plugin ## Build images; start two kind clusters; run all FV tests including exec-plugin
+
 .PHONY: fv
 fv: $(GINKGO) ## Run controller tests using an existing cluster
 	cd test/fv; $(GINKGO) -nodes $(NUM_NODES) --label-filter='FV' --v --trace --randomize-all
+
+.PHONY: fv-exec-plugin
+fv-exec-plugin: $(GINKGO) ## Run exec-plugin FV tests against an existing two-cluster setup
+	cd test/fv; $(GINKGO) -nodes $(NUM_NODES) --label-filter='FV-EXECPLUGIN' --v --trace --randomize-all
 
 .PHONY: test
 test: manifests generate fmt vet $(SETUP_ENVTEST) ## Run unit tests.
@@ -160,15 +171,48 @@ create-cluster: $(KIND) $(KUBECTL) $(KUSTOMIZE) $(ENVSUBST) ## Create a new kind
 	$(MAKE) create-control-cluster
 	$(MAKE) deploy-projectsveltos
 
+.PHONY: create-cluster-fv
+create-cluster-fv: $(KIND) $(KUBECTL) $(KUSTOMIZE) $(ENVSUBST) build-exec-plugin ## Create two kind clusters on a shared network and deploy the controller
+	docker network rm $(SVELTOS_NETWORK_NAME) 2>/dev/null || true
+	docker network inspect $(SVELTOS_NETWORK_NAME) > /dev/null 2>&1 || docker network create $(SVELTOS_NETWORK_NAME)
+
+	@echo "Create the management cluster"
+	sed -e "s/K8S_VERSION/$(K8S_VERSION)/g" test/$(KIND_CONFIG) > test/$(KIND_CONFIG).tmp
+	$(KIND) create cluster --name=$(CONTROL_CLUSTER_NAME) --config test/$(KIND_CONFIG).tmp
+	$(MAKE) deploy-projectsveltos
+
+	@echo "Create the workload cluster"
+	sed -e "s/K8S_VERSION/$(K8S_VERSION)/g" test/$(WORKLOAD_KIND_CONFIG) > test/$(WORKLOAD_KIND_CONFIG).tmp
+	$(KIND) create cluster --name=$(WORKLOAD_CLUSTER_NAME) --config test/$(WORKLOAD_KIND_CONFIG).tmp
+
+	@echo "Connect both clusters to the shared docker network"
+	docker network connect $(SVELTOS_NETWORK_NAME) $(CONTROL_CLUSTER_NAME)-control-plane
+	docker network connect $(SVELTOS_NETWORK_NAME) $(WORKLOAD_CLUSTER_NAME)-control-plane
+
+	@echo "Copy exec-plugin binary onto the management cluster node"
+	docker cp $(EXEC_PLUGIN_BINARY) $(CONTROL_CLUSTER_NAME)-control-plane:/usr/local/bin/test-exec-plugin
+	docker exec $(CONTROL_CLUSTER_NAME)-control-plane chmod 755 /usr/local/bin/test-exec-plugin
+
+	@echo "Save workload cluster kubeconfig for FV tests"
+	$(KIND) get kubeconfig --name $(WORKLOAD_CLUSTER_NAME) > test/fv/workload_kubeconfig
+
+	@echo "Switch back to management cluster context"
+	$(KUBECTL) config use-context kind-$(CONTROL_CLUSTER_NAME)
+
 .PHONY: delete-cluster
 delete-cluster: $(KIND) ## Delete the kind cluster
 	$(KIND) delete cluster --name $(CONTROL_CLUSTER_NAME)
+	$(KIND) delete cluster --name $(WORKLOAD_CLUSTER_NAME)
 
 ##@ Build
 
 .PHONY: build
 build: generate fmt vet ## Build manager binary.
 	go build -o bin/manager cmd/main.go
+
+.PHONY: build-exec-plugin
+build-exec-plugin: ## Build the FV exec-plugin binary for linux/amd64 (injected into the controller pod during exec-plugin FV tests)
+	GOOS=linux GOARCH=amd64 go build -o $(EXEC_PLUGIN_BINARY) ./test/fv/exec-plugin/
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.

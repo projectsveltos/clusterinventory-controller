@@ -224,7 +224,17 @@ func reconcileKubeconfigSecret(ctx context.Context, c client.Client,
 			Data: map[string][]byte{kubeconfigKey: kubeconfigData},
 		}
 		logger.V(logs.LogDebug).Info("creating kubeconfig secret")
-		return c.Create(ctx, secret)
+		if createErr := c.Create(ctx, secret); createErr != nil {
+			if !apierrors.IsAlreadyExists(createErr) {
+				return createErr
+			}
+			// Race: another reconcile created the secret between our Get and Create.
+			if err = c.Get(ctx, types.NamespacedName{Namespace: cp.Namespace, Name: secretName}, existing); err != nil {
+				return fmt.Errorf("failed to re-get kubeconfig secret: %w", err)
+			}
+		} else {
+			return nil
+		}
 	}
 
 	if bytes.Equal(existing.Data[kubeconfigKey], kubeconfigData) {
@@ -261,7 +271,17 @@ func reconcileSveltosCluster(ctx context.Context, c client.Client,
 			},
 		}
 		logger.V(logs.LogDebug).Info("creating SveltosCluster")
-		return c.Create(ctx, sc)
+		if createErr := c.Create(ctx, sc); createErr != nil {
+			if !apierrors.IsAlreadyExists(createErr) {
+				return createErr
+			}
+			// Race: another reconcile created the SveltosCluster between our Get and Create.
+			if err = c.Get(ctx, types.NamespacedName{Namespace: cp.Namespace, Name: cp.Name}, existing); err != nil {
+				return fmt.Errorf("failed to re-get SveltosCluster: %w", err)
+			}
+		} else {
+			return nil
+		}
 	}
 
 	if existing.Spec.KubeconfigName == secretName && existing.Spec.KubeconfigKeyName == kubeconfigKey {

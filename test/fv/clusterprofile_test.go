@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	clientcmdv1 "k8s.io/client-go/tools/clientcmd/api/v1"
+	"k8s.io/client-go/util/retry"
 	clusterinventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -85,9 +86,18 @@ var _ = Describe("ClusterProfile controller", Label("FV"), func() {
 		cp := buildFvClusterProfile(cpName, namespace)
 		Expect(k8sClient.Create(context.TODO(), cp)).To(Succeed())
 
-		// Status is a sub-resource; update it separately.
-		cp.Status = buildFvAccessProviderStatus(srcSecretName, "kubeconfig", namespace)
-		Expect(k8sClient.Status().Update(context.TODO(), cp)).To(Succeed())
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			currentCP := &clusterinventoryv1alpha1.ClusterProfile{}
+			err := k8sClient.Get(context.TODO(), types.NamespacedName{
+				Namespace: cp.Namespace, Name: cp.Name},
+				currentCP)
+			if err != nil {
+				return err
+			}
+			currentCP.Status = buildFvAccessProviderStatus(srcSecretName, "kubeconfig", namespace)
+			return k8sClient.Status().Update(context.TODO(), currentCP)
+		})
+		Expect(err).To(BeNil())
 
 		expectedSecretName := cpName + "-sveltos-kubeconfig"
 
