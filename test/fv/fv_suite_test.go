@@ -57,6 +57,8 @@ var (
 const (
 	timeout         = 2 * time.Minute
 	pollingInterval = 5 * time.Second
+
+	localContextName = "local"
 )
 
 func TestFv(t *testing.T) {
@@ -158,21 +160,21 @@ func buildInClusterKubeconfig(ctx context.Context, cfg *rest.Config) ([]byte, er
 		APIVersion: "v1",
 		Kind:       "Config",
 		Clusters: []clientcmdv1.NamedCluster{{
-			Name: "local",
+			Name: localContextName,
 			Cluster: clientcmdv1.Cluster{
 				Server:                   "https://kubernetes.default.svc:443",
 				CertificateAuthorityData: caData,
 			},
 		}},
 		AuthInfos: []clientcmdv1.NamedAuthInfo{{
-			Name:     "local",
+			Name:     localContextName,
 			AuthInfo: clientcmdv1.AuthInfo{Token: tokenResp.Status.Token},
 		}},
 		Contexts: []clientcmdv1.NamedContext{{
-			Name:    "local",
-			Context: clientcmdv1.Context{Cluster: "local", AuthInfo: "local"},
+			Name:    localContextName,
+			Context: clientcmdv1.Context{Cluster: localContextName, AuthInfo: localContextName},
 		}},
-		CurrentContext: "local",
+		CurrentContext: localContextName,
 	}
 
 	return yaml.Marshal(kc)

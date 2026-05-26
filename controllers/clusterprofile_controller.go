@@ -19,11 +19,13 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	clusterinventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
+	"sigs.k8s.io/cluster-inventory-api/pkg/access"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -37,6 +39,10 @@ const (
 	// controller can delete the SveltosCluster and kubeconfig Secret before
 	// the ClusterProfile is removed from the API server.
 	clusterProfileFinalizer = "clusterinventory.projectsveltos.io/finalizer"
+
+	// tokenRefreshRatio controls how early we requeue before the token expires.
+	// Requeuing at 80% of the remaining lifetime gives a comfortable safety margin.
+	tokenRefreshRatio = 0.8
 )
 
 // ClusterProfileReconciler reconciles a multicluster.x-k8s.io ClusterProfile.
@@ -44,6 +50,7 @@ type ClusterProfileReconciler struct {
 	client.Client
 	Scheme               *runtime.Scheme
 	ConcurrentReconciles int
+	AccessConfig         *access.Config
 }
 
 //+kubebuilder:rbac:groups=multicluster.x-k8s.io,resources=clusterprofiles,verbs=get;list;watch;update;patch
@@ -71,11 +78,11 @@ func (r *ClusterProfileReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, r.reconcileDelete(ctx, cp, logger)
 	}
 
-	return ctrl.Result{}, r.reconcileNormal(ctx, cp, logger)
+	return r.reconcileNormal(ctx, cp, logger)
 }
 
 func (r *ClusterProfileReconciler) reconcileNormal(ctx context.Context,
-	cp *clusterinventoryv1alpha1.ClusterProfile, logger logr.Logger) error {
+	cp *clusterinventoryv1alpha1.ClusterProfile, logger logr.Logger) (ctrl.Result, error) {
 
 	logger.V(logs.LogDebug).Info("reconcileNormal")
 
@@ -83,27 +90,39 @@ func (r *ClusterProfileReconciler) reconcileNormal(ctx context.Context,
 		controllerutil.AddFinalizer(cp, clusterProfileFinalizer)
 		if err := r.Update(ctx, cp); err != nil {
 			logger.V(logs.LogInfo).Info(fmt.Sprintf("failed to add finalizer: %v", err))
-			return err
+			return ctrl.Result{}, err
 		}
 	}
 
-	kubeconfig, err := getKubeconfig(ctx, r.Client, cp, logger)
+	kubeconfig, expiry, err := getKubeconfig(ctx, r.Client, r.AccessConfig, cp, logger)
 	if err != nil {
 		logger.V(logs.LogInfo).Info(fmt.Sprintf("failed to get kubeconfig: %v", err))
-		return err
+		return ctrl.Result{}, err
 	}
 
 	if err := reconcileKubeconfigSecret(ctx, r.Client, cp, kubeconfig, logger); err != nil {
 		logger.V(logs.LogInfo).Info(fmt.Sprintf("failed to reconcile kubeconfig secret: %v", err))
-		return err
+		return ctrl.Result{}, err
 	}
 
 	if err := reconcileSveltosCluster(ctx, r.Client, cp, logger); err != nil {
 		logger.V(logs.LogInfo).Info(fmt.Sprintf("failed to reconcile SveltosCluster: %v", err))
-		return err
+		return ctrl.Result{}, err
 	}
 
-	return nil
+	if expiry != nil {
+		remaining := time.Until(*expiry)
+		const minRequeue = time.Minute
+		requeueAfter := time.Duration(float64(remaining) * tokenRefreshRatio)
+		if requeueAfter < minRequeue {
+			requeueAfter = minRequeue
+		}
+		logger.V(logs.LogDebug).Info("scheduling token refresh",
+			"expiry", expiry, "requeueAfter", requeueAfter)
+		return ctrl.Result{RequeueAfter: requeueAfter}, nil
+	}
+
+	return ctrl.Result{}, nil
 }
 
 func (r *ClusterProfileReconciler) reconcileDelete(ctx context.Context,

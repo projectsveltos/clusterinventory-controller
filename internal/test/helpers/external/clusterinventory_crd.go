@@ -25,6 +25,7 @@ import (
 const (
 	clusterInventoryGroup   = "multicluster.x-k8s.io"
 	clusterInventoryVersion = "v1alpha1"
+	crdSchemaTypeObject     = "object"
 )
 
 var (
@@ -60,14 +61,14 @@ func generateClusterProfileCRD() *apiextensionsv1.CustomResourceDefinition {
 					},
 					Schema: &apiextensionsv1.CustomResourceValidation{
 						OpenAPIV3Schema: &apiextensionsv1.JSONSchemaProps{
-							Type: "object",
+							Type: crdSchemaTypeObject,
 							Properties: map[string]apiextensionsv1.JSONSchemaProps{
 								"spec": {
-									Type:                   "object",
+									Type:                   crdSchemaTypeObject,
 									XPreserveUnknownFields: ptr.To(true),
 								},
 								"status": {
-									Type:                   "object",
+									Type:                   crdSchemaTypeObject,
 									XPreserveUnknownFields: ptr.To(true),
 								},
 							},

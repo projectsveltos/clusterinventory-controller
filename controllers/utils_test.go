@@ -36,6 +36,14 @@ import (
 	libsveltosv1beta1 "github.com/projectsveltos/libsveltos/api/v1beta1"
 )
 
+const (
+	// secretReaderNameField and secretReaderKeyField are the JSON field names for secretReaderConfig.
+	secretReaderNameField = "name"
+	secretReaderKeyField  = "key"
+	// srcSecretKey is the key name used in source Secrets in tests.
+	srcSecretKey = "kubeconfig"
+)
+
 var _ = Describe("Utils", func() {
 	var namespace string
 
@@ -89,11 +97,11 @@ var _ = Describe("Utils", func() {
 	Context("getKubeconfigFromSecretReader", func() {
 		It("returns kubeconfig bytes from the referenced Secret", func() {
 			kubeconfig := []byte("fake-kubeconfig-data")
-			srcSecret := buildSourceSecret("src-secret", namespace, "kubeconfig", kubeconfig)
+			srcSecret := buildSourceSecret("src-secret", namespace, srcSecretKey, kubeconfig)
 			Expect(testEnv.Create(context.TODO(), srcSecret)).To(Succeed())
 			Expect(waitForObject(context.TODO(), testEnv.Client, srcSecret)).To(Succeed())
 
-			extRaw, err := json.Marshal(map[string]string{"name": "src-secret", "key": "kubeconfig"})
+			extRaw, err := json.Marshal(map[string]string{secretReaderNameField: "src-secret", secretReaderKeyField: srcSecretKey})
 			Expect(err).To(BeNil())
 			provider := &clusterinventoryv1alpha1.AccessProvider{
 				Name: controller.KubeconfigSecretReaderProvider,
@@ -120,7 +128,7 @@ var _ = Describe("Utils", func() {
 		})
 
 		It("returns error when source Secret does not exist", func() {
-			extRaw, _ := json.Marshal(map[string]string{"name": "nonexistent", "key": "kubeconfig"})
+			extRaw, _ := json.Marshal(map[string]string{secretReaderNameField: "nonexistent", secretReaderKeyField: srcSecretKey})
 			provider := &clusterinventoryv1alpha1.AccessProvider{
 				Name: controller.KubeconfigSecretReaderProvider,
 				Cluster: clientcmdv1.Cluster{
@@ -137,21 +145,21 @@ var _ = Describe("Utils", func() {
 	Context("getKubeconfig", func() {
 		It("returns error when no supported provider is present", func() {
 			cp := buildClusterProfile("test", namespace, "unsupported-provider", nil)
-			_, err := controller.GetKubeconfig(context.TODO(), testEnv.Client, cp, logger)
+			_, _, err := controller.GetKubeconfig(context.TODO(), testEnv.Client, nil, cp, logger)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("no supported access provider"))
 		})
 
 		It("routes to secretreader when provider matches", func() {
 			kubeconfig := []byte("my-kubeconfig")
-			srcSecret := buildSourceSecret("src", namespace, "kubeconfig", kubeconfig)
+			srcSecret := buildSourceSecret("src", namespace, srcSecretKey, kubeconfig)
 			Expect(testEnv.Create(context.TODO(), srcSecret)).To(Succeed())
 			Expect(waitForObject(context.TODO(), testEnv.Client, srcSecret)).To(Succeed())
 
-			extRaw, _ := json.Marshal(map[string]string{"name": "src", "key": "kubeconfig"})
+			extRaw, _ := json.Marshal(map[string]string{secretReaderNameField: "src", secretReaderKeyField: srcSecretKey})
 			cp := buildClusterProfile("test2", namespace, controller.KubeconfigSecretReaderProvider, extRaw)
 
-			result, err := controller.GetKubeconfig(context.TODO(), testEnv.Client, cp, logger)
+			result, _, err := controller.GetKubeconfig(context.TODO(), testEnv.Client, nil, cp, logger)
 			Expect(err).To(BeNil())
 			Expect(result).To(Equal(kubeconfig))
 		})
