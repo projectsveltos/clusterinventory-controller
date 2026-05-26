@@ -26,6 +26,7 @@ hack/tools/bin/
 # Needed by fv
 test/fv/workload_kubeconfig
 test/fv/production_kubeconfig
+test/fv/exec-plugin-linux-amd64
 bin/manager
 
 manager_image_patch.yaml-e
