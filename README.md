@@ -46,15 +46,13 @@ clusterinventory-controller
            Sveltos (addon-controller, sveltoscluster-manager, …)
 ```
 
-## Where it stops
+## Access providers
 
-- **Access provider support**: only the `kubeconfig-secretreader` provider is supported today. This provider reads a full kubeconfig from a pre-existing Kubernetes Secret referenced inside the `client.authentication.k8s.io/exec` extension of the `ClusterProfile` status. Exec-plugin providers (where the `ClusterProfile` vends short-lived credentials via an external binary) are not yet supported; adding them requires implementing a new helper and wiring it into `getKubeconfig()` in `controllers/utils.go`.
-- **Kubeconfig refresh**: the controller reconciles the kubeconfig Secret whenever the `ClusterProfile` is reconciled. It does **not** independently watch the source Secret for changes; an external actor (e.g., the cluster manager that writes the `ClusterProfile` status) is responsible for triggering a re-reconcile when credentials rotate.
-- **Cluster lifecycle**: the controller does not provision, deprovision, or health-check the remote cluster. It only translates the `ClusterProfile` representation into what Sveltos needs. The `SveltosCluster` readiness check (and everything that happens after it) is entirely Sveltos's responsibility.
+### kubeconfig-secretreader (built-in)
 
-## Access provider: kubeconfig-secretreader
+This is a built-in fast path that requires no external binary. The controller reads a **complete kubeconfig** from a pre-existing Kubernetes Secret and copies it into the managed kubeconfig Secret.
 
-The `kubeconfig-secretreader` provider expects the following JSON payload embedded in the `client.authentication.k8s.io/exec` extension of the access provider entry:
+The `ClusterProfile` access provider entry must be named `kubeconfig-secretreader` and carry the following JSON payload in the `client.authentication.k8s.io/exec` Cluster extension:
 
 ```json
 {
@@ -69,6 +67,61 @@ The `kubeconfig-secretreader` provider expects the following JSON payload embedd
 | `name` | yes | Name of the Secret that holds the kubeconfig |
 | `key` | yes | Data key inside the Secret |
 | `namespace` | no | Namespace of the Secret; defaults to the `ClusterProfile` namespace |
+
+> **Naming note**: the upstream [cluster-inventory-api](https://github.com/kubernetes-sigs/cluster-inventory-api) project also ships a binary called `kubeconfig-secretreader` that works as an exec credential plugin (returning an `ExecCredential` with token or cert/key data). The two uses of the name refer to different things: in this controller `kubeconfig-secretreader` is a built-in code path that copies a full kubeconfig, while upstream it is an exec plugin binary. A future improvement could unify them by routing `kubeconfig-secretreader` through the generic exec-plugin path described below.
+
+### Exec-plugin providers (via `--clusterprofile-provider-file`)
+
+Any access provider backed by an exec credential plugin can be enabled by passing a provider configuration file to the controller at startup:
+
+```
+--clusterprofile-provider-file=/etc/clusterinventory/providers.json
+```
+
+The controller invokes the configured binary directly at reconcile time, embeds the returned credentials into a plain kubeconfig (no exec stanza), and stores that kubeconfig in the managed Secret. This means `sveltoscluster-manager` does not need the exec binary in its own pod.
+
+All three credential shapes returned by `ExecCredentialStatus` are supported:
+
+| Returned by plugin | Written to kubeconfig |
+|---|---|
+| `status.token` | `user.token` |
+| `status.clientCertificateData` + `status.clientKeyData` | `user.client-certificate-data` + `user.client-key-data` |
+| both token and cert/key | both fields set |
+
+If the plugin returns an `expirationTimestamp`, the controller automatically requeues at 80 % of the remaining token lifetime (minimum 1 minute) so the Secret is refreshed before the credentials expire. For certificate-only plugins that do not set an expiry, rotation relies on the controller's `--sync-period` (default 10 minutes) or an external re-trigger of the `ClusterProfile`.
+
+#### Provider configuration file format
+
+```json
+{
+  "providers": [
+    {
+      "name": "my-provider",
+      "execConfig": {
+        "apiVersion": "client.authentication.k8s.io/v1",
+        "command": "/usr/local/bin/my-credential-plugin",
+        "args": ["--cluster-name", "$(CLUSTER_NAME)"],
+        "env": [
+          {"name": "MY_ENV", "value": "value"}
+        ],
+        "provideClusterInfo": true,
+        "interactiveMode": "Never"
+      },
+      "profileSourcedCLIArgsPolicy": "Append",
+      "profileSourcedEnvVarsPolicy": "AppendIfNotExists"
+    }
+  ]
+}
+```
+
+The `name` field must match the provider name in the `ClusterProfile`'s `status.accessProviders`. The `profileSourcedCLIArgsPolicy` and `profileSourcedEnvVarsPolicy` fields control whether cluster-specific arguments and environment variables embedded in the `ClusterProfile` extensions (per [KEP-5339](https://github.com/kubernetes/enhancements/issues/5339)) are merged into the plugin invocation.
+
+> **Operational note**: the exec plugin binary must be present and executable inside the controller pod. The controller invokes it with `KUBERNETES_EXEC_INFO` set so that plugins using `provideClusterInfo: true` receive the correct server and CA data.
+
+## Where it stops
+
+- **Kubeconfig refresh**: the controller reconciles the kubeconfig Secret whenever the `ClusterProfile` is reconciled. It does **not** independently watch the source Secret for changes (kubeconfig-secretreader path) or the token expiry beyond the scheduled requeue (exec-plugin path). An external actor (e.g., the cluster manager that writes the `ClusterProfile` status) is responsible for triggering a re-reconcile when credentials rotate out-of-band.
+- **Cluster lifecycle**: the controller does not provision, deprovision, or health-check the remote cluster. It only translates the `ClusterProfile` representation into what Sveltos needs. The `SveltosCluster` readiness check (and everything that happens after it) is entirely Sveltos's responsibility.
 
 ## Managed resources
 

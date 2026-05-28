@@ -66,7 +66,7 @@ const (
 	managedByValue = "clusterinventory-controller"
 
 	// tokenKubeconfigCluster, tokenKubeconfigUser, and tokenKubeconfigContext are
-	// the fixed names used in the minimal kubeconfig built by BuildTokenKubeconfig.
+	// the fixed names used in the kubeconfig built by BuildKubeconfigFromExecStatus.
 	tokenKubeconfigCluster = "cluster"
 	tokenKubeconfigUser    = "user"
 	tokenKubeconfigContext = "context"
@@ -365,27 +365,34 @@ func getKubeconfigFromExecPlugin(ctx context.Context,
 	}
 
 	logger.V(logs.LogDebug).Info("invoking exec plugin", "command", restCfg.ExecProvider.Command)
-	token, expiry, err := invokeExecPlugin(ctx, restCfg.ExecProvider.Command,
+	status, err := invokeExecPlugin(ctx, restCfg.ExecProvider.Command,
 		restCfg.ExecProvider.Args, envVars, ap)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	kubeconfig, err := BuildTokenKubeconfig(ap.Cluster.Server, ap.Cluster.CertificateAuthorityData, token)
+	var expiry *time.Time
+	if status.ExpirationTimestamp != nil {
+		t := status.ExpirationTimestamp.Time
+		expiry = &t
+	}
+
+	kubeconfig, err := BuildKubeconfigFromExecStatus(ap.Cluster.Server, ap.Cluster.CertificateAuthorityData, status)
 	if err != nil {
-		return nil, nil, fmt.Errorf("building token kubeconfig: %w", err)
+		return nil, nil, fmt.Errorf("building kubeconfig from exec status: %w", err)
 	}
 
 	return kubeconfig, expiry, nil
 }
 
-// invokeExecPlugin runs an exec credential plugin and returns the bearer token
-// and its optional expiry time. It sets KUBERNETES_EXEC_INFO so that plugins
+// invokeExecPlugin runs an exec credential plugin and returns its full
+// ExecCredentialStatus. It sets KUBERNETES_EXEC_INFO so that plugins
 // that request cluster info (ProvideClusterInfo: true) receive the correct
-// server and CA data.
+// server and CA data. Returns an error if the plugin emits no status, or if
+// the status contains neither a token nor client certificate data.
 func invokeExecPlugin(ctx context.Context,
 	command string, args []string, envVars []string,
-	ap *clusterinventoryv1alpha1.AccessProvider) (string, *time.Time, error) {
+	ap *clusterinventoryv1alpha1.AccessProvider) (*clientauthenticationv1.ExecCredentialStatus, error) {
 
 	// Build KUBERNETES_EXEC_INFO: an ExecCredential carrying the cluster
 	// connection details so the plugin knows which cluster it is authenticating to.
@@ -410,7 +417,7 @@ func invokeExecPlugin(ctx context.Context,
 	}
 	execInfoJSON, err := json.Marshal(execInfo)
 	if err != nil {
-		return "", nil, fmt.Errorf("marshaling KUBERNETES_EXEC_INFO: %w", err)
+		return nil, fmt.Errorf("marshaling KUBERNETES_EXEC_INFO: %w", err)
 	}
 
 	cmd := exec.CommandContext(ctx, command, args...)
@@ -419,29 +426,35 @@ func invokeExecPlugin(ctx context.Context,
 
 	out, err := cmd.Output()
 	if err != nil {
-		return "", nil, fmt.Errorf("exec plugin %q: %w", command, err)
+		return nil, fmt.Errorf("exec plugin %q: %w", command, err)
 	}
 
 	var result clientauthenticationv1.ExecCredential
 	if err := json.Unmarshal(out, &result); err != nil {
-		return "", nil, fmt.Errorf("parsing exec plugin output: %w", err)
+		return nil, fmt.Errorf("parsing exec plugin output: %w", err)
 	}
-	if result.Status == nil || result.Status.Token == "" {
-		return "", nil, fmt.Errorf("exec plugin %q returned no token", command)
+	if result.Status == nil {
+		return nil, fmt.Errorf("exec plugin %q returned no status", command)
 	}
-
-	var expiry *time.Time
-	if result.Status.ExpirationTimestamp != nil {
-		t := result.Status.ExpirationTimestamp.Time
-		expiry = &t
+	if result.Status.Token == "" && result.Status.ClientCertificateData == "" {
+		return nil, fmt.Errorf("exec plugin %q returned neither a token nor client certificate data", command)
 	}
-	return result.Status.Token, expiry, nil
+	return result.Status, nil
 }
 
-// BuildTokenKubeconfig constructs a minimal kubeconfig that authenticates
-// with a static bearer token. The resulting YAML can be stored in a Secret
-// and used by sveltoscluster-manager without any exec binary.
-func BuildTokenKubeconfig(server string, caData []byte, token string) ([]byte, error) {
+// BuildKubeconfigFromExecStatus constructs a minimal kubeconfig from the
+// ExecCredentialStatus returned by an exec credential plugin. All credential
+// fields are mapped:
+//   - status.Token → AuthInfo.Token
+//   - status.ClientCertificateData → AuthInfo.ClientCertificateData (PEM bytes)
+//   - status.ClientKeyData → AuthInfo.ClientKeyData (PEM bytes)
+//
+// Empty fields are omitted, so the result is correct for token-only,
+// cert+key-only, or combined credentials. The resulting YAML can be stored in
+// a Secret and used by sveltoscluster-manager without any exec binary.
+func BuildKubeconfigFromExecStatus(server string, caData []byte,
+	status *clientauthenticationv1.ExecCredentialStatus) ([]byte, error) {
+
 	kc := clientcmdv1.Config{
 		APIVersion: "v1",
 		Kind:       "Config",
@@ -453,8 +466,12 @@ func BuildTokenKubeconfig(server string, caData []byte, token string) ([]byte, e
 			},
 		}},
 		AuthInfos: []clientcmdv1.NamedAuthInfo{{
-			Name:     tokenKubeconfigUser,
-			AuthInfo: clientcmdv1.AuthInfo{Token: token},
+			Name: tokenKubeconfigUser,
+			AuthInfo: clientcmdv1.AuthInfo{
+				Token:                 status.Token,
+				ClientCertificateData: []byte(status.ClientCertificateData),
+				ClientKeyData:         []byte(status.ClientKeyData),
+			},
 		}},
 		Contexts: []clientcmdv1.NamedContext{{
 			Name:    tokenKubeconfigContext,
