@@ -28,9 +28,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	clientauthenticationv1 "k8s.io/client-go/pkg/apis/clientauthentication/v1"
 	clientcmdv1 "k8s.io/client-go/tools/clientcmd/api/v1"
 	clusterinventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/yaml"
 
 	controller "github.com/projectsveltos/clusterinventory-controller/controllers"
 	libsveltosv1beta1 "github.com/projectsveltos/libsveltos/api/v1beta1"
@@ -288,6 +290,63 @@ var _ = Describe("Utils", func() {
 		It("is a no-op when Secret does not exist", func() {
 			cp := buildClusterProfile(randomString(), namespace, "", nil)
 			Expect(controller.DeleteKubeconfigSecret(context.TODO(), testEnv.Client, cp, logger)).To(Succeed())
+		})
+	})
+
+	Context("BuildKubeconfigFromExecStatus", func() {
+		const (
+			testServer  = "https://cluster.example.com:6443"
+			testCertPEM = "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"
+			testKeyPEM  = "-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----\n" //nolint:gosec // fake PEM, not a real key
+		)
+		testCA := []byte("fake-ca-data")
+
+		It("produces a token-only kubeconfig when only Token is set", func() {
+			status := &clientauthenticationv1.ExecCredentialStatus{Token: "my-token"}
+			data, err := controller.BuildKubeconfigFromExecStatus(testServer, testCA, status)
+			Expect(err).To(BeNil())
+
+			var kc clientcmdv1.Config
+			Expect(yaml.Unmarshal(data, &kc)).To(Succeed())
+			Expect(kc.Clusters).To(HaveLen(1))
+			Expect(kc.Clusters[0].Cluster.Server).To(Equal(testServer))
+			Expect(kc.Clusters[0].Cluster.CertificateAuthorityData).To(Equal(testCA))
+			Expect(kc.AuthInfos).To(HaveLen(1))
+			Expect(kc.AuthInfos[0].AuthInfo.Token).To(Equal("my-token"))
+			Expect(kc.AuthInfos[0].AuthInfo.ClientCertificateData).To(BeEmpty())
+			Expect(kc.AuthInfos[0].AuthInfo.ClientKeyData).To(BeEmpty())
+		})
+
+		It("produces a cert+key kubeconfig when only certificate data is set", func() {
+			status := &clientauthenticationv1.ExecCredentialStatus{
+				ClientCertificateData: testCertPEM,
+				ClientKeyData:         testKeyPEM,
+			}
+			data, err := controller.BuildKubeconfigFromExecStatus(testServer, testCA, status)
+			Expect(err).To(BeNil())
+
+			var kc clientcmdv1.Config
+			Expect(yaml.Unmarshal(data, &kc)).To(Succeed())
+			Expect(kc.AuthInfos).To(HaveLen(1))
+			Expect(kc.AuthInfos[0].AuthInfo.Token).To(BeEmpty())
+			Expect(kc.AuthInfos[0].AuthInfo.ClientCertificateData).To(Equal([]byte(testCertPEM)))
+			Expect(kc.AuthInfos[0].AuthInfo.ClientKeyData).To(Equal([]byte(testKeyPEM)))
+		})
+
+		It("includes all credential fields when token and cert+key are both set", func() {
+			status := &clientauthenticationv1.ExecCredentialStatus{
+				Token:                 "combined-token",
+				ClientCertificateData: testCertPEM,
+				ClientKeyData:         testKeyPEM,
+			}
+			data, err := controller.BuildKubeconfigFromExecStatus(testServer, testCA, status)
+			Expect(err).To(BeNil())
+
+			var kc clientcmdv1.Config
+			Expect(yaml.Unmarshal(data, &kc)).To(Succeed())
+			Expect(kc.AuthInfos[0].AuthInfo.Token).To(Equal("combined-token"))
+			Expect(kc.AuthInfos[0].AuthInfo.ClientCertificateData).To(Equal([]byte(testCertPEM)))
+			Expect(kc.AuthInfos[0].AuthInfo.ClientKeyData).To(Equal([]byte(testKeyPEM)))
 		})
 	})
 })
