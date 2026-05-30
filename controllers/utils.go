@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"reflect"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -246,12 +247,27 @@ func reconcileKubeconfigSecret(ctx context.Context, c client.Client,
 	return c.Update(ctx, existing)
 }
 
+// sveltosClusterLabels returns the labels to set on the SveltosCluster.
+// All labels from the ClusterProfile are copied so that Sveltos selectors can
+// match the SveltosCluster using the same labels. The managed-by label is
+// always added (and takes precedence) so the controller can identify its own objects.
+func sveltosClusterLabels(cp *clusterinventoryv1alpha1.ClusterProfile) map[string]string {
+	labels := make(map[string]string, len(cp.Labels)+1)
+	for k, v := range cp.Labels {
+		labels[k] = v
+	}
+	labels[managedByLabel] = managedByValue
+	return labels
+}
+
 // reconcileSveltosCluster creates or updates the SveltosCluster for cp.
 func reconcileSveltosCluster(ctx context.Context, c client.Client,
 	cp *clusterinventoryv1alpha1.ClusterProfile, logger logr.Logger) error {
 
 	secretName := kubeconfigSecretName(cp.Name)
 	logger = logger.WithValues("sveltoscluster", fmt.Sprintf("%s/%s", cp.Namespace, cp.Name))
+
+	desiredLabels := sveltosClusterLabels(cp)
 
 	existing := &libsveltosv1beta1.SveltosCluster{}
 	err := c.Get(ctx, types.NamespacedName{Namespace: cp.Namespace, Name: cp.Name}, existing)
@@ -263,7 +279,7 @@ func reconcileSveltosCluster(ctx context.Context, c client.Client,
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      cp.Name,
 				Namespace: cp.Namespace,
-				Labels:    map[string]string{managedByLabel: managedByValue},
+				Labels:    desiredLabels,
 			},
 			Spec: libsveltosv1beta1.SveltosClusterSpec{
 				KubeconfigName:    secretName,
@@ -284,12 +300,16 @@ func reconcileSveltosCluster(ctx context.Context, c client.Client,
 		}
 	}
 
-	if existing.Spec.KubeconfigName == secretName && existing.Spec.KubeconfigKeyName == kubeconfigKey {
+	if existing.Spec.KubeconfigName == secretName &&
+		existing.Spec.KubeconfigKeyName == kubeconfigKey &&
+		reflect.DeepEqual(existing.Labels, desiredLabels) {
+
 		return nil
 	}
 
 	existing.Spec.KubeconfigName = secretName
 	existing.Spec.KubeconfigKeyName = kubeconfigKey
+	existing.Labels = desiredLabels
 	logger.V(logs.LogDebug).Info("updating SveltosCluster")
 	return c.Update(ctx, existing)
 }

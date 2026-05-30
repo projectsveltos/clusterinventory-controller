@@ -237,6 +237,46 @@ var _ = Describe("Utils", func() {
 			Expect(sc.Labels[controller.ManagedByLabel]).To(Equal(controller.ManagedByValue))
 		})
 
+		It("copies ClusterProfile labels onto the SveltosCluster at creation", func() {
+			cpName := randomString()
+			cp := buildClusterProfile(cpName, namespace, "", nil)
+			cp.Labels = map[string]string{"env": "prod", "region": "us-east-1"}
+
+			Expect(controller.ReconcileSveltosCluster(context.TODO(), testEnv.Client, cp, logger)).To(Succeed())
+
+			sc := &libsveltosv1beta1.SveltosCluster{}
+			Eventually(func() error {
+				return testEnv.Get(context.TODO(),
+					types.NamespacedName{Namespace: namespace, Name: cpName}, sc)
+			}, timeout, pollingInterval).Should(Succeed())
+			Expect(sc.Labels["env"]).To(Equal("prod"))
+			Expect(sc.Labels["region"]).To(Equal("us-east-1"))
+			Expect(sc.Labels[controller.ManagedByLabel]).To(Equal(controller.ManagedByValue))
+		})
+
+		It("updates SveltosCluster labels when ClusterProfile labels change", func() {
+			cpName := randomString()
+			cp := buildClusterProfile(cpName, namespace, "", nil)
+			cp.Labels = map[string]string{"env": "staging"}
+
+			Expect(controller.ReconcileSveltosCluster(context.TODO(), testEnv.Client, cp, logger)).To(Succeed())
+			Expect(waitForObject(context.TODO(), testEnv.Client, &libsveltosv1beta1.SveltosCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: cpName, Namespace: namespace},
+			})).To(Succeed())
+
+			cp.Labels = map[string]string{"env": "prod"}
+			Expect(controller.ReconcileSveltosCluster(context.TODO(), testEnv.Client, cp, logger)).To(Succeed())
+
+			sc := &libsveltosv1beta1.SveltosCluster{}
+			Eventually(func() string {
+				if err := testEnv.Get(context.TODO(),
+					types.NamespacedName{Namespace: namespace, Name: cpName}, sc); err != nil {
+					return ""
+				}
+				return sc.Labels["env"]
+			}, timeout, pollingInterval).Should(Equal("prod"))
+		})
+
 		It("is idempotent on repeated calls", func() {
 			cpName := randomString()
 			cp := buildClusterProfile(cpName, namespace, "", nil)

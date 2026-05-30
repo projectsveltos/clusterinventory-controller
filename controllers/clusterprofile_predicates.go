@@ -49,11 +49,6 @@ func ClusterProfilePredicates(logger logr.Logger) predicate.Predicate {
 				return true
 			}
 
-			// Skip reconciliation when only finalizers changed (e.g., we added/removed our own).
-			if !reflect.DeepEqual(newCP.Finalizers, oldCP.Finalizers) {
-				return false
-			}
-
 			// React when access providers change.
 			if !reflect.DeepEqual(newCP.Status.AccessProviders, oldCP.Status.AccessProviders) {
 				logger.V(logs.LogVerbose).Info("ClusterProfile access providers changed, will reconcile")
