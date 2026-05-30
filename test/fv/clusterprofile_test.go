@@ -82,8 +82,9 @@ var _ = Describe("ClusterProfile controller", Label("FV"), func() {
 		}
 		Expect(k8sClient.Create(context.TODO(), srcSecret)).To(Succeed())
 
-		Byf("Creating ClusterProfile %s/%s with kubeconfig-secretreader provider", namespace, cpName)
+		Byf("Creating ClusterProfile %s/%s with kubeconfig-secretreader provider and initial labels", namespace, cpName)
 		cp := buildFvClusterProfile(cpName, namespace)
+		cp.Labels = map[string]string{"env": "staging"}
 		Expect(k8sClient.Create(context.TODO(), cp)).To(Succeed())
 
 		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -115,6 +116,9 @@ var _ = Describe("ClusterProfile controller", Label("FV"), func() {
 		Expect(sc.Spec.KubeconfigName).To(Equal(expectedSecretName))
 		Expect(sc.Spec.KubeconfigKeyName).To(Equal("kubeconfig"))
 
+		Byf("Verifying SveltosCluster has labels copied from ClusterProfile")
+		Expect(sc.Labels["env"]).To(Equal("staging"))
+
 		Byf("Waiting for SveltosCluster %s/%s to be ready", namespace, cpName)
 		Eventually(func() bool {
 			sc := &libsveltosv1beta1.SveltosCluster{}
@@ -143,14 +147,11 @@ var _ = Describe("ClusterProfile controller", Label("FV"), func() {
 		updatedKubeconfig := []byte("updated-fake-kubeconfig")
 		Expect(updateSecretData(srcSecret, "kubeconfig", updatedKubeconfig)).To(Succeed())
 
-		// Trigger reconciliation by updating a label on the ClusterProfile.
+		// Trigger reconciliation by updating labels on the ClusterProfile.
 		// The controller predicate returns true when labels change.
 		Expect(k8sClient.Get(context.TODO(),
 			types.NamespacedName{Namespace: namespace, Name: cpName}, cp)).To(Succeed())
-		if cp.Labels == nil {
-			cp.Labels = make(map[string]string)
-		}
-		cp.Labels["reconcile"] = randomString()
+		cp.Labels["env"] = "prod"
 		Expect(k8sClient.Update(context.TODO(), cp)).To(Succeed())
 
 		Eventually(func() bool {
@@ -161,6 +162,16 @@ var _ = Describe("ClusterProfile controller", Label("FV"), func() {
 			}
 			return bytes.Equal(s.Data["kubeconfig"], updatedKubeconfig)
 		}, timeout, pollingInterval).Should(BeTrue())
+
+		Byf("Verifying SveltosCluster labels are updated after ClusterProfile label change")
+		Eventually(func() string {
+			current := &libsveltosv1beta1.SveltosCluster{}
+			if err := k8sClient.Get(context.TODO(),
+				types.NamespacedName{Namespace: namespace, Name: cpName}, current); err != nil {
+				return ""
+			}
+			return current.Labels["env"]
+		}, timeout, pollingInterval).Should(Equal("prod"))
 
 		Byf("Deleting ClusterProfile and verifying SveltosCluster and managed Secret are removed")
 		Expect(k8sClient.Get(context.TODO(),
