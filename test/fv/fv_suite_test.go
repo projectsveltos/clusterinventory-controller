@@ -88,6 +88,20 @@ const (
 
 	workloadClusterSAName      = "clusterinventory-fv-workload"
 	workloadClusterSANamespace = "kube-system"
+
+	execPluginBinaryVolume   = "exec-plugin-binary"
+	execPluginProviderVolume = "exec-plugin-provider"
+	execPluginTokenVolume    = "exec-plugin-token" //nolint:gosec // not a credential, just a volume name
+
+	providerJSONKey        = "provider.json"
+	tokenKey               = "token"
+	rbacKindClusterRole    = "ClusterRole"
+	rbacKindServiceAccount = "ServiceAccount"
+	rbacAPIGroup           = "rbac.authorization.k8s.io"
+	clusterAdminRole       = "cluster-admin"
+	keyName                = "name"
+	keyEnv                 = "env"
+	keyEnvProd             = "prod"
 )
 
 func TestFv(t *testing.T) {
@@ -189,11 +203,11 @@ func setupExecPluginInfrastructure(ctx context.Context, mgmtCfg, workloadCfg *re
 
 	// 3. Create objects in the management cluster.
 	if err := createOrUpdateConfigMap(ctx, execPluginProviderConfigMap, controllerDeploymentNamespace,
-		map[string]string{"provider.json": string(providerJSON)}, nil); err != nil {
+		map[string]string{providerJSONKey: string(providerJSON)}, nil); err != nil {
 		return fmt.Errorf("creating provider ConfigMap: %w", err)
 	}
 	if err := createOrUpdateSecret(ctx, execPluginTokenSecret, controllerDeploymentNamespace,
-		map[string][]byte{"token": []byte(token)}); err != nil {
+		map[string][]byte{tokenKey: []byte(token)}); err != nil {
 		return fmt.Errorf("creating token Secret: %w", err)
 	}
 
@@ -238,8 +252,8 @@ func buildWorkloadClusterToken(ctx context.Context, cfg *rest.Config) (string, e
 	_, err = clientset.RbacV1().ClusterRoleBindings().Create(ctx,
 		&rbacv1.ClusterRoleBinding{
 			ObjectMeta: metav1.ObjectMeta{Name: workloadClusterSAName + "-admin"},
-			RoleRef:    rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "ClusterRole", Name: "cluster-admin"},
-			Subjects:   []rbacv1.Subject{{Kind: "ServiceAccount", Name: workloadClusterSAName, Namespace: workloadClusterSANamespace}},
+			RoleRef:    rbacv1.RoleRef{APIGroup: rbacAPIGroup, Kind: rbacKindClusterRole, Name: clusterAdminRole},
+			Subjects:   []rbacv1.Subject{{Kind: rbacKindServiceAccount, Name: workloadClusterSAName, Namespace: workloadClusterSANamespace}},
 		}, metav1.CreateOptions{})
 	if err != nil && !apierrors.IsAlreadyExists(err) {
 		return "", fmt.Errorf("creating workload ClusterRoleBinding: %w", err)
@@ -260,12 +274,12 @@ func buildProviderJSON() ([]byte, error) {
 	provider := map[string]interface{}{
 		"providers": []map[string]interface{}{
 			{
-				"name": execPluginProviderName,
+				keyName: execPluginProviderName,
 				"execConfig": map[string]interface{}{
 					"command":            execPluginBinaryPath,
 					"apiVersion":         "client.authentication.k8s.io/v1",
 					"args":               []string{},
-					"env":                []interface{}{},
+					keyEnv:               []interface{}{},
 					"provideClusterInfo": false,
 				},
 			},
@@ -325,7 +339,7 @@ func patchControllerDeployment(ctx context.Context) error {
 	deploy.Spec.Template.Spec.Volumes = append(deploy.Spec.Template.Spec.Volumes,
 		corev1.Volume{
 			// Binary is placed on the kind node by 'make create-cluster-fv' via docker cp.
-			Name: "exec-plugin-binary",
+			Name: execPluginBinaryVolume,
 			VolumeSource: corev1.VolumeSource{
 				HostPath: &corev1.HostPathVolumeSource{
 					Path: execPluginBinaryPath,
@@ -334,7 +348,7 @@ func patchControllerDeployment(ctx context.Context) error {
 			},
 		},
 		corev1.Volume{
-			Name: "exec-plugin-provider",
+			Name: execPluginProviderVolume,
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
 					LocalObjectReference: corev1.LocalObjectReference{Name: execPluginProviderConfigMap},
@@ -342,7 +356,7 @@ func patchControllerDeployment(ctx context.Context) error {
 			},
 		},
 		corev1.Volume{
-			Name: "exec-plugin-token",
+			Name: execPluginTokenVolume,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
 					SecretName: execPluginTokenSecret,
@@ -359,18 +373,18 @@ func patchControllerDeployment(ctx context.Context) error {
 		}
 		c.VolumeMounts = append(c.VolumeMounts,
 			corev1.VolumeMount{
-				Name:      "exec-plugin-binary",
+				Name:      execPluginBinaryVolume,
 				MountPath: execPluginBinaryPath,
 			},
 			corev1.VolumeMount{
-				Name:      "exec-plugin-provider",
+				Name:      execPluginProviderVolume,
 				MountPath: execPluginProviderPath,
-				SubPath:   "provider.json",
+				SubPath:   providerJSONKey,
 			},
 			corev1.VolumeMount{
-				Name:      "exec-plugin-token",
+				Name:      execPluginTokenVolume,
 				MountPath: execPluginTokenPath,
-				SubPath:   "token",
+				SubPath:   tokenKey,
 			},
 		)
 		c.Args = append(c.Args, "--clusterprofile-provider-file="+execPluginProviderPath)
@@ -389,9 +403,9 @@ func restoreControllerDeployment(ctx context.Context) {
 
 	// Remove our volumes.
 	testVolumeNames := map[string]bool{
-		"exec-plugin-binary":   true,
-		"exec-plugin-provider": true,
-		"exec-plugin-token":    true,
+		execPluginBinaryVolume:   true,
+		execPluginProviderVolume: true,
+		execPluginTokenVolume:    true,
 	}
 	filtered := deploy.Spec.Template.Spec.Volumes[:0]
 	for i := range deploy.Spec.Template.Spec.Volumes {
@@ -471,8 +485,8 @@ func buildInClusterKubeconfig(ctx context.Context, cfg *rest.Config) ([]byte, er
 	_, err = clientset.RbacV1().ClusterRoleBindings().Create(ctx,
 		&rbacv1.ClusterRoleBinding{
 			ObjectMeta: metav1.ObjectMeta{Name: "clusterinventory-fv-admin"},
-			RoleRef:    rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "ClusterRole", Name: "cluster-admin"},
-			Subjects:   []rbacv1.Subject{{Kind: "ServiceAccount", Name: saName, Namespace: saNamespace}},
+			RoleRef:    rbacv1.RoleRef{APIGroup: rbacAPIGroup, Kind: rbacKindClusterRole, Name: clusterAdminRole},
+			Subjects:   []rbacv1.Subject{{Kind: rbacKindServiceAccount, Name: saName, Namespace: saNamespace}},
 		}, metav1.CreateOptions{})
 	if err != nil && !apierrors.IsAlreadyExists(err) {
 		return nil, fmt.Errorf("creating clusterrolebinding: %w", err)
