@@ -44,6 +44,8 @@ const (
 	secretReaderKeyField  = "key"
 	// srcSecretKey is the key name used in source Secrets in tests.
 	srcSecretKey = "kubeconfig"
+	labelKeyEnv  = "env"
+	labelEnvProd = "prod"
 )
 
 var _ = Describe("Utils", func() {
@@ -240,7 +242,7 @@ var _ = Describe("Utils", func() {
 		It("copies ClusterProfile labels onto the SveltosCluster at creation", func() {
 			cpName := randomString()
 			cp := buildClusterProfile(cpName, namespace, "", nil)
-			cp.Labels = map[string]string{"env": "prod", "region": "us-east-1"}
+			cp.Labels = map[string]string{labelKeyEnv: labelEnvProd, "region": "us-east-1"}
 
 			Expect(controller.ReconcileSveltosCluster(context.TODO(), testEnv.Client, cp, logger)).To(Succeed())
 
@@ -249,7 +251,7 @@ var _ = Describe("Utils", func() {
 				return testEnv.Get(context.TODO(),
 					types.NamespacedName{Namespace: namespace, Name: cpName}, sc)
 			}, timeout, pollingInterval).Should(Succeed())
-			Expect(sc.Labels["env"]).To(Equal("prod"))
+			Expect(sc.Labels[labelKeyEnv]).To(Equal(labelEnvProd))
 			Expect(sc.Labels["region"]).To(Equal("us-east-1"))
 			Expect(sc.Labels[controller.ManagedByLabel]).To(Equal(controller.ManagedByValue))
 		})
@@ -257,14 +259,14 @@ var _ = Describe("Utils", func() {
 		It("updates SveltosCluster labels when ClusterProfile labels change", func() {
 			cpName := randomString()
 			cp := buildClusterProfile(cpName, namespace, "", nil)
-			cp.Labels = map[string]string{"env": "staging"}
+			cp.Labels = map[string]string{labelKeyEnv: "staging"}
 
 			Expect(controller.ReconcileSveltosCluster(context.TODO(), testEnv.Client, cp, logger)).To(Succeed())
 			Expect(waitForObject(context.TODO(), testEnv.Client, &libsveltosv1beta1.SveltosCluster{
 				ObjectMeta: metav1.ObjectMeta{Name: cpName, Namespace: namespace},
 			})).To(Succeed())
 
-			cp.Labels = map[string]string{"env": "prod"}
+			cp.Labels = map[string]string{labelKeyEnv: labelEnvProd}
 			Expect(controller.ReconcileSveltosCluster(context.TODO(), testEnv.Client, cp, logger)).To(Succeed())
 
 			sc := &libsveltosv1beta1.SveltosCluster{}
@@ -273,8 +275,8 @@ var _ = Describe("Utils", func() {
 					types.NamespacedName{Namespace: namespace, Name: cpName}, sc); err != nil {
 					return ""
 				}
-				return sc.Labels["env"]
-			}, timeout, pollingInterval).Should(Equal("prod"))
+				return sc.Labels[labelKeyEnv]
+			}, timeout, pollingInterval).Should(Equal(labelEnvProd))
 		})
 
 		It("is idempotent on repeated calls", func() {

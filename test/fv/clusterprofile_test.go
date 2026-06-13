@@ -84,7 +84,7 @@ var _ = Describe("ClusterProfile controller", Label("FV"), func() {
 
 		Byf("Creating ClusterProfile %s/%s with kubeconfig-secretreader provider and initial labels", namespace, cpName)
 		cp := buildFvClusterProfile(cpName, namespace)
-		cp.Labels = map[string]string{"env": "staging"}
+		cp.Labels = map[string]string{keyEnv: "staging"}
 		Expect(k8sClient.Create(context.TODO(), cp)).To(Succeed())
 
 		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -117,7 +117,7 @@ var _ = Describe("ClusterProfile controller", Label("FV"), func() {
 		Expect(sc.Spec.KubeconfigKeyName).To(Equal("kubeconfig"))
 
 		Byf("Verifying SveltosCluster has labels copied from ClusterProfile")
-		Expect(sc.Labels["env"]).To(Equal("staging"))
+		Expect(sc.Labels[keyEnv]).To(Equal("staging"))
 
 		Byf("Waiting for SveltosCluster %s/%s to be ready", namespace, cpName)
 		Eventually(func() bool {
@@ -151,7 +151,7 @@ var _ = Describe("ClusterProfile controller", Label("FV"), func() {
 		// The controller predicate returns true when labels change.
 		Expect(k8sClient.Get(context.TODO(),
 			types.NamespacedName{Namespace: namespace, Name: cpName}, cp)).To(Succeed())
-		cp.Labels["env"] = "prod"
+		cp.Labels[keyEnv] = keyEnvProd
 		Expect(k8sClient.Update(context.TODO(), cp)).To(Succeed())
 
 		Eventually(func() bool {
@@ -170,8 +170,8 @@ var _ = Describe("ClusterProfile controller", Label("FV"), func() {
 				types.NamespacedName{Namespace: namespace, Name: cpName}, current); err != nil {
 				return ""
 			}
-			return current.Labels["env"]
-		}, timeout, pollingInterval).Should(Equal("prod"))
+			return current.Labels[keyEnv]
+		}, timeout, pollingInterval).Should(Equal(keyEnvProd))
 
 		Byf("Deleting ClusterProfile and verifying SveltosCluster and managed Secret are removed")
 		Expect(k8sClient.Get(context.TODO(),
@@ -208,7 +208,7 @@ func buildFvClusterProfile(name, namespace string) *clusterinventoryv1alpha1.Clu
 
 func buildFvAccessProviderStatus(secretName, secretKey, namespace string) clusterinventoryv1alpha1.ClusterProfileStatus {
 	extPayload := map[string]string{
-		"name":      secretName,
+		keyName:     secretName,
 		"key":       secretKey,
 		"namespace": namespace,
 	}
