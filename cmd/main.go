@@ -100,7 +100,7 @@ func main() {
 	ctx := ctrl.SetupSignalHandler()
 
 	logs.RegisterForLogSettings(ctx,
-		libsveltosv1beta1.Component("ClusterInventoryController"), ctrl.Log.WithName("log-setter"),
+		libsveltosv1beta1.ComponentClusterInventory, ctrl.Log.WithName("log-setter"),
 		ctrl.GetConfigOrDie())
 
 	var accessCfg *access.Config

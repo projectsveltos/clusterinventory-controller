@@ -321,12 +321,20 @@ var _ = Describe("Utils", func() {
 			cp := buildClusterProfile(cpName, namespace, "", nil)
 
 			Expect(controller.ReconcileKubeconfigSecret(context.TODO(), testEnv.Client, cp, []byte("data"), logger)).To(Succeed())
+			// Wait for the cache to reflect the created Secret so that
+			// DeleteKubeconfigSecret's internal Get can find it.
+			Expect(waitForObject(context.TODO(), testEnv.Client, &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: controller.KubeconfigSecretName(cpName), Namespace: namespace},
+			})).To(Succeed())
+
 			Expect(controller.DeleteKubeconfigSecret(context.TODO(), testEnv.Client, cp, logger)).To(Succeed())
 
 			secret := &corev1.Secret{}
-			err := testEnv.Get(context.TODO(),
-				types.NamespacedName{Namespace: namespace, Name: controller.KubeconfigSecretName(cpName)}, secret)
-			Expect(err).To(HaveOccurred())
+			Eventually(func() bool {
+				err := testEnv.Get(context.TODO(),
+					types.NamespacedName{Namespace: namespace, Name: controller.KubeconfigSecretName(cpName)}, secret)
+				return apierrors.IsNotFound(err)
+			}, timeout, pollingInterval).Should(BeTrue())
 		})
 
 		It("is a no-op when Secret does not exist", func() {

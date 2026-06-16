@@ -4,7 +4,7 @@ go 1.26.4
 
 require (
 	github.com/a8m/envsubst v1.4.3
-	github.com/onsi/ginkgo/v2 v2.30.0
+	github.com/onsi/ginkgo/v2 v2.31.0
 	golang.org/x/tools v0.46.0
 	sigs.k8s.io/controller-tools v0.21.0
 	sigs.k8s.io/kind v0.32.0
