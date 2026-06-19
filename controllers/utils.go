@@ -66,6 +66,13 @@ const (
 	managedByLabel = "clusterinventory.projectsveltos.io/managed-by"
 	managedByValue = "clusterinventory-controller"
 
+	// displayNameAnnotation carries ClusterProfile.Spec.DisplayName on the SveltosCluster.
+	displayNameAnnotation = "clusterinventory.projectsveltos.io/display-name"
+
+	// sourceSecretIndex is the field-index key used to map a source Secret back to the
+	// ClusterProfiles that reference it via the kubeconfig-secretreader access provider.
+	sourceSecretIndex = ".status.sourceSecretRef"
+
 	// tokenKubeconfigCluster, tokenKubeconfigUser, and tokenKubeconfigContext are
 	// the fixed names used in the kubeconfig built by BuildKubeconfigFromExecStatus.
 	tokenKubeconfigCluster = "cluster"
@@ -157,6 +164,31 @@ func findAccessProvider(cp *clusterinventoryv1alpha1.ClusterProfile,
 		}
 	}
 	return nil
+}
+
+// sourceSecretNamespacedName returns the "namespace/name" of the source Secret
+// referenced by the kubeconfig-secretreader access provider, or "" if the provider
+// is absent or carries no valid Secret reference.
+func sourceSecretNamespacedName(cp *clusterinventoryv1alpha1.ClusterProfile) string {
+	provider := findAccessProvider(cp, kubeconfigSecretReaderProviderName)
+	if provider == nil {
+		return ""
+	}
+	for _, ext := range provider.Cluster.Extensions {
+		if ext.Name != execExtensionKey {
+			continue
+		}
+		var cfg secretReaderConfig
+		if err := json.Unmarshal(ext.Extension.Raw, &cfg); err != nil || cfg.Name == "" {
+			return ""
+		}
+		ns := cfg.Namespace
+		if ns == "" {
+			ns = cp.Namespace
+		}
+		return ns + "/" + cfg.Name
+	}
+	return ""
 }
 
 // getKubeconfigFromSecretReader handles the "kubeconfig-secretreader" provider.
@@ -260,6 +292,24 @@ func sveltosClusterLabels(cp *clusterinventoryv1alpha1.ClusterProfile) map[strin
 	return labels
 }
 
+// applyDisplayName returns a copy of annotations with the display-name annotation
+// set or removed according to displayName. Other existing annotations are preserved.
+func applyDisplayName(existing map[string]string, displayName string) map[string]string {
+	result := make(map[string]string, len(existing)+1)
+	for k, v := range existing {
+		result[k] = v
+	}
+	if displayName != "" {
+		result[displayNameAnnotation] = displayName
+	} else {
+		delete(result, displayNameAnnotation)
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
 // reconcileSveltosCluster creates or updates the SveltosCluster for cp.
 func reconcileSveltosCluster(ctx context.Context, c client.Client,
 	cp *clusterinventoryv1alpha1.ClusterProfile, logger logr.Logger) error {
@@ -277,9 +327,10 @@ func reconcileSveltosCluster(ctx context.Context, c client.Client,
 		}
 		sc := &libsveltosv1beta1.SveltosCluster{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      cp.Name,
-				Namespace: cp.Namespace,
-				Labels:    desiredLabels,
+				Name:        cp.Name,
+				Namespace:   cp.Namespace,
+				Labels:      desiredLabels,
+				Annotations: applyDisplayName(nil, cp.Spec.DisplayName),
 			},
 			Spec: libsveltosv1beta1.SveltosClusterSpec{
 				KubeconfigName:    secretName,
@@ -300,9 +351,12 @@ func reconcileSveltosCluster(ctx context.Context, c client.Client,
 		}
 	}
 
+	desiredAnnotations := applyDisplayName(existing.Annotations, cp.Spec.DisplayName)
+
 	if existing.Spec.KubeconfigName == secretName &&
 		existing.Spec.KubeconfigKeyName == kubeconfigKey &&
-		reflect.DeepEqual(existing.Labels, desiredLabels) {
+		reflect.DeepEqual(existing.Labels, desiredLabels) &&
+		reflect.DeepEqual(existing.Annotations, desiredAnnotations) {
 
 		return nil
 	}
@@ -310,6 +364,7 @@ func reconcileSveltosCluster(ctx context.Context, c client.Client,
 	existing.Spec.KubeconfigName = secretName
 	existing.Spec.KubeconfigKeyName = kubeconfigKey
 	existing.Labels = desiredLabels
+	existing.Annotations = desiredAnnotations
 	logger.V(logs.LogDebug).Info("updating SveltosCluster")
 	return c.Update(ctx, existing)
 }

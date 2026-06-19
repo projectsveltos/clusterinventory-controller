@@ -46,6 +46,11 @@ const (
 	srcSecretKey = "kubeconfig"
 	labelKeyEnv  = "env"
 	labelEnvProd = "prod"
+
+	srcSecretRefName      = "my-secret"
+	externalAnnotKey      = "other.io/annotation"
+	externalAnnotValue    = "keep-me"
+	displayNameAddedLater = "added-later"
 )
 
 var _ = Describe("Utils", func() {
@@ -68,6 +73,30 @@ var _ = Describe("Utils", func() {
 		It("appends sveltos-kubeconfig suffix", func() {
 			name := controller.KubeconfigSecretName("my-cluster")
 			Expect(name).To(Equal("my-cluster-sveltos-kubeconfig"))
+		})
+	})
+
+	Context("sourceSecretNamespacedName", func() {
+		It("returns namespace/name using the explicit namespace in the extension", func() {
+			extRaw, _ := json.Marshal(map[string]string{secretReaderNameField: srcSecretRefName, secretReaderKeyField: srcSecretKey, "namespace": "other-ns"})
+			cp := buildClusterProfile("test", namespace, controller.KubeconfigSecretReaderProvider, extRaw)
+			Expect(controller.SourceSecretNamespacedName(cp)).To(Equal("other-ns/" + srcSecretRefName))
+		})
+
+		It("defaults namespace to ClusterProfile namespace when not set in the extension", func() {
+			extRaw, _ := json.Marshal(map[string]string{secretReaderNameField: srcSecretRefName, secretReaderKeyField: srcSecretKey})
+			cp := buildClusterProfile("test", namespace, controller.KubeconfigSecretReaderProvider, extRaw)
+			Expect(controller.SourceSecretNamespacedName(cp)).To(Equal(namespace + "/" + srcSecretRefName))
+		})
+
+		It("returns empty string when no kubeconfig-secretreader provider is present", func() {
+			cp := buildClusterProfile("test", namespace, "other-provider", nil)
+			Expect(controller.SourceSecretNamespacedName(cp)).To(BeEmpty())
+		})
+
+		It("returns empty string when no access provider is set at all", func() {
+			cp := buildClusterProfile("test", namespace, "", nil)
+			Expect(controller.SourceSecretNamespacedName(cp)).To(BeEmpty())
 		})
 	})
 
@@ -285,6 +314,106 @@ var _ = Describe("Utils", func() {
 
 			Expect(controller.ReconcileSveltosCluster(context.TODO(), testEnv.Client, cp, logger)).To(Succeed())
 			Expect(controller.ReconcileSveltosCluster(context.TODO(), testEnv.Client, cp, logger)).To(Succeed())
+		})
+
+		It("sets the display-name annotation when Spec.DisplayName is non-empty", func() {
+			cpName := randomString()
+			cp := buildClusterProfile(cpName, namespace, "", nil)
+			cp.Spec.DisplayName = "My Test Cluster"
+
+			Expect(controller.ReconcileSveltosCluster(context.TODO(), testEnv.Client, cp, logger)).To(Succeed())
+
+			sc := &libsveltosv1beta1.SveltosCluster{}
+			Eventually(func() error {
+				return testEnv.Get(context.TODO(),
+					types.NamespacedName{Namespace: namespace, Name: cpName}, sc)
+			}, timeout, pollingInterval).Should(Succeed())
+			Expect(sc.Annotations[controller.DisplayNameAnnotation]).To(Equal("My Test Cluster"))
+		})
+
+		It("updates the display-name annotation when DisplayName changes", func() {
+			cpName := randomString()
+			cp := buildClusterProfile(cpName, namespace, "", nil)
+			cp.Spec.DisplayName = "v1"
+
+			Expect(controller.ReconcileSveltosCluster(context.TODO(), testEnv.Client, cp, logger)).To(Succeed())
+			Expect(waitForObject(context.TODO(), testEnv.Client, &libsveltosv1beta1.SveltosCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: cpName, Namespace: namespace},
+			})).To(Succeed())
+
+			cp.Spec.DisplayName = "v2"
+			Expect(controller.ReconcileSveltosCluster(context.TODO(), testEnv.Client, cp, logger)).To(Succeed())
+
+			sc := &libsveltosv1beta1.SveltosCluster{}
+			Eventually(func() string {
+				if err := testEnv.Get(context.TODO(),
+					types.NamespacedName{Namespace: namespace, Name: cpName}, sc); err != nil {
+					return ""
+				}
+				return sc.Annotations[controller.DisplayNameAnnotation]
+			}, timeout, pollingInterval).Should(Equal("v2"))
+		})
+
+		It("removes the display-name annotation when DisplayName is cleared", func() {
+			cpName := randomString()
+			cp := buildClusterProfile(cpName, namespace, "", nil)
+			cp.Spec.DisplayName = "to-be-cleared"
+
+			Expect(controller.ReconcileSveltosCluster(context.TODO(), testEnv.Client, cp, logger)).To(Succeed())
+			Expect(waitForObject(context.TODO(), testEnv.Client, &libsveltosv1beta1.SveltosCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: cpName, Namespace: namespace},
+			})).To(Succeed())
+
+			cp.Spec.DisplayName = ""
+			Expect(controller.ReconcileSveltosCluster(context.TODO(), testEnv.Client, cp, logger)).To(Succeed())
+
+			sc := &libsveltosv1beta1.SveltosCluster{}
+			Eventually(func() bool {
+				if err := testEnv.Get(context.TODO(),
+					types.NamespacedName{Namespace: namespace, Name: cpName}, sc); err != nil {
+					return false
+				}
+				_, exists := sc.Annotations[controller.DisplayNameAnnotation]
+				return !exists
+			}, timeout, pollingInterval).Should(BeTrue())
+		})
+
+	})
+
+	// applyDisplayName is a pure function; test it without the API server.
+	Context("applyDisplayName", func() {
+		It("sets the display-name annotation on a nil map", func() {
+			result := controller.ApplyDisplayName(nil, "my-cluster")
+			Expect(result[controller.DisplayNameAnnotation]).To(Equal("my-cluster"))
+		})
+
+		It("preserves existing annotations when adding display-name", func() {
+			existing := map[string]string{externalAnnotKey: externalAnnotValue}
+			result := controller.ApplyDisplayName(existing, displayNameAddedLater)
+			Expect(result[externalAnnotKey]).To(Equal(externalAnnotValue))
+			Expect(result[controller.DisplayNameAnnotation]).To(Equal(displayNameAddedLater))
+		})
+
+		It("removes only the display-name annotation when display name is cleared", func() {
+			existing := map[string]string{
+				externalAnnotKey:                 externalAnnotValue,
+				controller.DisplayNameAnnotation: "old-name",
+			}
+			result := controller.ApplyDisplayName(existing, "")
+			Expect(result[externalAnnotKey]).To(Equal(externalAnnotValue))
+			_, exists := result[controller.DisplayNameAnnotation]
+			Expect(exists).To(BeFalse())
+		})
+
+		It("returns nil when the result would be empty", func() {
+			Expect(controller.ApplyDisplayName(nil, "")).To(BeNil())
+		})
+
+		It("does not mutate the input map", func() {
+			existing := map[string]string{externalAnnotKey: externalAnnotValue}
+			_ = controller.ApplyDisplayName(existing, displayNameAddedLater)
+			Expect(existing).To(HaveLen(1))
+			Expect(existing).NotTo(HaveKey(controller.DisplayNameAnnotation))
 		})
 	})
 

@@ -40,6 +40,7 @@ import (
 const (
 	execExtensionKey               = "client.authentication.k8s.io/exec"
 	kubeconfigSecretReaderProvider = "kubeconfig-secretreader" //nolint:gosec // not a credential, just a provider name
+	kubeconfigDataKey              = "kubeconfig"
 )
 
 var _ = Describe("ClusterProfile controller", Label("FV"), func() {
@@ -78,7 +79,7 @@ var _ = Describe("ClusterProfile controller", Label("FV"), func() {
 		Byf("Creating source kubeconfig Secret %s/%s", namespace, srcSecretName)
 		srcSecret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{Name: srcSecretName, Namespace: namespace},
-			Data:       map[string][]byte{"kubeconfig": kubeconfigData},
+			Data:       map[string][]byte{kubeconfigDataKey: kubeconfigData},
 		}
 		Expect(k8sClient.Create(context.TODO(), srcSecret)).To(Succeed())
 
@@ -143,17 +144,11 @@ var _ = Describe("ClusterProfile controller", Label("FV"), func() {
 			types.NamespacedName{Namespace: namespace, Name: expectedSecretName}, secret)).To(Succeed())
 		Expect(secret.Data["kubeconfig"]).To(Equal(kubeconfigData))
 
-		Byf("Updating source kubeconfig Secret and verifying managed Secret is updated")
+		Byf("Updating source kubeconfig Secret and verifying managed Secret is updated automatically")
 		updatedKubeconfig := []byte("updated-fake-kubeconfig")
 		Expect(updateSecretData(srcSecret, "kubeconfig", updatedKubeconfig)).To(Succeed())
 
-		// Trigger reconciliation by updating labels on the ClusterProfile.
-		// The controller predicate returns true when labels change.
-		Expect(k8sClient.Get(context.TODO(),
-			types.NamespacedName{Namespace: namespace, Name: cpName}, cp)).To(Succeed())
-		cp.Labels[keyEnv] = keyEnvProd
-		Expect(k8sClient.Update(context.TODO(), cp)).To(Succeed())
-
+		// The source Secret watch enqueues the ClusterProfile automatically — no manual trigger needed.
 		Eventually(func() bool {
 			s := &corev1.Secret{}
 			if err := k8sClient.Get(context.TODO(),
@@ -164,6 +159,11 @@ var _ = Describe("ClusterProfile controller", Label("FV"), func() {
 		}, timeout, pollingInterval).Should(BeTrue())
 
 		Byf("Verifying SveltosCluster labels are updated after ClusterProfile label change")
+		Expect(k8sClient.Get(context.TODO(),
+			types.NamespacedName{Namespace: namespace, Name: cpName}, cp)).To(Succeed())
+		cp.Labels[keyEnv] = keyEnvProd
+		Expect(k8sClient.Update(context.TODO(), cp)).To(Succeed())
+
 		Eventually(func() string {
 			current := &libsveltosv1beta1.SveltosCluster{}
 			if err := k8sClient.Get(context.TODO(),
@@ -191,6 +191,41 @@ var _ = Describe("ClusterProfile controller", Label("FV"), func() {
 				types.NamespacedName{Namespace: namespace, Name: expectedSecretName}, s)
 			return apierrors.IsNotFound(err)
 		}, timeout, pollingInterval).Should(BeTrue())
+	})
+
+	It("sets display-name annotation on SveltosCluster from ClusterProfile.Spec.DisplayName", func() {
+		Byf("Creating source kubeconfig Secret %s/%s", namespace, srcSecretName)
+		srcSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: srcSecretName, Namespace: namespace},
+			Data:       map[string][]byte{kubeconfigDataKey: testClusterKubeconfig},
+		}
+		Expect(k8sClient.Create(context.TODO(), srcSecret)).To(Succeed())
+
+		Byf("Creating ClusterProfile %s/%s with DisplayName", namespace, cpName)
+		cp := buildFvClusterProfile(cpName, namespace)
+		cp.Spec.DisplayName = "my-display-name"
+		Expect(k8sClient.Create(context.TODO(), cp)).To(Succeed())
+
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			currentCP := &clusterinventoryv1alpha1.ClusterProfile{}
+			if err := k8sClient.Get(context.TODO(),
+				types.NamespacedName{Namespace: cp.Namespace, Name: cp.Name}, currentCP); err != nil {
+				return err
+			}
+			currentCP.Status = buildFvAccessProviderStatus(srcSecretName, "kubeconfig", namespace)
+			return k8sClient.Status().Update(context.TODO(), currentCP)
+		})
+		Expect(err).To(BeNil())
+
+		Byf("Waiting for SveltosCluster %s/%s to carry the display-name annotation", namespace, cpName)
+		Eventually(func() string {
+			sc := &libsveltosv1beta1.SveltosCluster{}
+			if err := k8sClient.Get(context.TODO(),
+				types.NamespacedName{Namespace: namespace, Name: cpName}, sc); err != nil {
+				return ""
+			}
+			return sc.Annotations["clusterinventory.projectsveltos.io/display-name"]
+		}, timeout, pollingInterval).Should(Equal("my-display-name"))
 	})
 })
 
