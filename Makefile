@@ -149,7 +149,7 @@ NUM_NODES ?= 1
 EXEC_PLUGIN_BINARY ?= test/fv/exec-plugin-linux-amd64
 
 .PHONY: kind-test
-kind-test: test create-cluster fv ## Build docker image; start kind cluster; load docker image; run fv
+kind-test: test create-cluster-fv fv ## Build images; start both kind clusters; load docker image; run fv
 
 .PHONY: kind-test-exec-plugin
 kind-test-exec-plugin: test create-cluster-fv fv-exec-plugin ## Build images; start two kind clusters; run all FV tests including exec-plugin
@@ -203,6 +203,7 @@ create-cluster-fv: $(KIND) $(KUBECTL) $(KUSTOMIZE) $(ENVSUBST) build-exec-plugin
 delete-cluster: $(KIND) ## Delete the kind cluster
 	$(KIND) delete cluster --name $(CONTROL_CLUSTER_NAME)
 	$(KIND) delete cluster --name $(WORKLOAD_CLUSTER_NAME)
+	rm -f test/fv/workload_kubeconfig
 
 ##@ Build
 

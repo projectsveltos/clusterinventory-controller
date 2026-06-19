@@ -22,14 +22,19 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	clusterinventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	"sigs.k8s.io/cluster-inventory-api/pkg/access"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	logs "github.com/projectsveltos/libsveltos/lib/logsettings"
 )
@@ -149,9 +154,61 @@ func (r *ClusterProfileReconciler) reconcileDelete(ctx context.Context,
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ClusterProfileReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// Index ClusterProfiles by the source Secret they reference via kubeconfig-secretreader,
+	// so the Secret watch can enqueue the right ClusterProfile when a source Secret changes.
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(),
+		&clusterinventoryv1alpha1.ClusterProfile{},
+		sourceSecretIndex,
+		func(obj client.Object) []string {
+			cp, ok := obj.(*clusterinventoryv1alpha1.ClusterProfile)
+			if !ok {
+				return nil
+			}
+			ref := sourceSecretNamespacedName(cp)
+			if ref == "" {
+				return nil
+			}
+			return []string{ref}
+		}); err != nil {
+		return fmt.Errorf("indexing ClusterProfile source secrets: %w", err)
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&clusterinventoryv1alpha1.ClusterProfile{}).
 		WithEventFilter(ClusterProfilePredicates(mgr.GetLogger().WithValues("predicate", "clusterprofilepredicates"))).
+		Watches(
+			&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(r.sourceSecretToClusterProfiles),
+			builder.WithPredicates(SourceSecretPredicates()),
+		).
 		WithOptions(controller.Options{MaxConcurrentReconciles: r.ConcurrentReconciles}).
 		Complete(r)
+}
+
+// sourceSecretToClusterProfiles maps a changed source Secret to the ClusterProfiles
+// that reference it via the kubeconfig-secretreader access provider.
+func (r *ClusterProfileReconciler) sourceSecretToClusterProfiles(
+	ctx context.Context, obj client.Object) []reconcile.Request {
+
+	secret, ok := obj.(*corev1.Secret)
+	if !ok {
+		return nil
+	}
+
+	ref := secret.Namespace + "/" + secret.Name
+	cpList := &clusterinventoryv1alpha1.ClusterProfileList{}
+	if err := r.List(ctx, cpList, client.MatchingFields{sourceSecretIndex: ref}); err != nil {
+		return nil
+	}
+
+	requests := make([]reconcile.Request, 0, len(cpList.Items))
+	for i := range cpList.Items {
+		requests = append(requests, reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Namespace: cpList.Items[i].Namespace,
+				Name:      cpList.Items[i].Name,
+			},
+		})
+	}
+	return requests
 }

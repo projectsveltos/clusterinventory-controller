@@ -20,6 +20,7 @@ import (
 	"reflect"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	clusterinventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -64,8 +65,35 @@ func ClusterProfilePredicates(logger logr.Logger) predicate.Predicate {
 				return true
 			}
 
+			// React when the human-readable display name changes.
+			if newCP.Spec.DisplayName != oldCP.Spec.DisplayName {
+				logger.V(logs.LogVerbose).Info("ClusterProfile DisplayName changed, will reconcile")
+				return true
+			}
+
 			logger.V(logs.LogVerbose).Info("ClusterProfile update is not relevant, skipping reconcile")
 			return false
+		},
+		CreateFunc:  func(e event.CreateEvent) bool { return true },
+		DeleteFunc:  func(e event.DeleteEvent) bool { return true },
+		GenericFunc: func(e event.GenericEvent) bool { return false },
+	}
+}
+
+// SourceSecretPredicates returns a predicate for the source Secret watch.
+// It fires on Create and Delete, and on Update only when the Secret Data changes.
+func SourceSecretPredicates() predicate.Predicate {
+	return predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldSecret, ok := e.ObjectOld.(*corev1.Secret)
+			if !ok {
+				return true
+			}
+			newSecret, ok := e.ObjectNew.(*corev1.Secret)
+			if !ok {
+				return true
+			}
+			return !reflect.DeepEqual(oldSecret.Data, newSecret.Data)
 		},
 		CreateFunc:  func(e event.CreateEvent) bool { return true },
 		DeleteFunc:  func(e event.DeleteEvent) bool { return true },

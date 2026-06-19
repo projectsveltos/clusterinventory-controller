@@ -20,6 +20,8 @@ var (
 	GetKubeconfig                 = getKubeconfig
 	GetKubeconfigFromSecretReader = getKubeconfigFromSecretReader
 	FindAccessProvider            = findAccessProvider
+	SourceSecretNamespacedName    = sourceSecretNamespacedName
+	ApplyDisplayName              = applyDisplayName
 	KubeconfigSecretName          = kubeconfigSecretName
 	ReconcileKubeconfigSecret     = reconcileKubeconfigSecret
 	ReconcileSveltosCluster       = reconcileSveltosCluster
@@ -33,4 +35,6 @@ const (
 	KubeconfigKey                  = kubeconfigKey
 	ManagedByLabel                 = managedByLabel
 	ManagedByValue                 = managedByValue
+	DisplayNameAnnotation          = displayNameAnnotation
+	SourceSecretIndex              = sourceSecretIndex
 )
