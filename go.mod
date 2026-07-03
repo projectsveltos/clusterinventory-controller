@@ -5,9 +5,9 @@ go 1.26.4
 require (
 	github.com/TwiN/go-color v1.4.1
 	github.com/go-logr/logr v1.4.3
-	github.com/onsi/ginkgo/v2 v2.31.0
-	github.com/onsi/gomega v1.42.0
-	github.com/projectsveltos/libsveltos v1.11.2-0.20260616121300-e3db429c5fbe
+	github.com/onsi/ginkgo/v2 v2.32.0
+	github.com/onsi/gomega v1.42.1
+	github.com/projectsveltos/libsveltos v1.12.0
 	github.com/spf13/pflag v1.0.10
 	k8s.io/api v0.36.2
 	k8s.io/apiextensions-apiserver v0.36.2
@@ -15,8 +15,8 @@ require (
 	k8s.io/client-go v0.36.2
 	k8s.io/component-base v0.36.2
 	k8s.io/klog/v2 v2.140.0
-	k8s.io/utils v0.0.0-20260507154919-ff6756f316d2
-	sigs.k8s.io/cluster-api v1.13.2
+	k8s.io/utils v0.0.0-20260626114624-be93311217bd
+	sigs.k8s.io/cluster-api v1.13.3
 	sigs.k8s.io/cluster-inventory-api v0.1.3
 	sigs.k8s.io/controller-runtime v0.24.1
 	sigs.k8s.io/yaml v1.6.0
@@ -84,11 +84,11 @@ require (
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/exp v0.0.0-20251219203646-944ab1f22d93 // indirect
 	golang.org/x/mod v0.36.0 // indirect
-	golang.org/x/net v0.54.0 // indirect
+	golang.org/x/net v0.56.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.21.0 // indirect
-	golang.org/x/sys v0.44.0 // indirect
-	golang.org/x/term v0.43.0 // indirect
+	golang.org/x/sys v0.46.0 // indirect
+	golang.org/x/term v0.44.0 // indirect
 	golang.org/x/text v0.38.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.45.0 // indirect
