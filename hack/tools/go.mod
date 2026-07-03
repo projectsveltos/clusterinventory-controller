@@ -5,7 +5,7 @@ go 1.26.4
 require (
 	github.com/a8m/envsubst v1.4.3
 	github.com/onsi/ginkgo/v2 v2.31.0
-	golang.org/x/tools v0.46.0
+	golang.org/x/tools v0.47.0
 	sigs.k8s.io/controller-tools v0.21.0
 	sigs.k8s.io/kind v0.32.0
 )
@@ -53,7 +53,7 @@ require (
 	golang.org/x/net v0.56.0 // indirect
 	golang.org/x/sync v0.21.0 // indirect
 	golang.org/x/sys v0.46.0 // indirect
-	golang.org/x/telemetry v0.0.0-20260610154732-fb80ec83bdd9 // indirect
+	golang.org/x/telemetry v0.0.0-20260625142307-59b4966ccb57 // indirect
 	golang.org/x/text v0.38.0 // indirect
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
