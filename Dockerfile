@@ -1,5 +1,5 @@
 # Build the manager binary
-FROM golang:1.26.4 AS builder
+FROM golang:1.26.5 AS builder
 
 ARG BUILDOS
 ARG TARGETARCH
@@ -23,6 +23,18 @@ RUN CGO_ENABLED=0 GOOS=$BUILDOS GOARCH=$TARGETARCH go build -a -o manager cmd/ma
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
 FROM gcr.io/distroless/static:nonroot
+
+ARG GIT_VERSION=unknown
+
+LABEL org.opencontainers.image.source="https://github.com/projectsveltos/clusterinventory-controller" \
+      org.opencontainers.image.url="https://projectsveltos.io" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.vendor="projectsveltos" \
+      org.opencontainers.image.title="clusterinventory-controller" \
+      org.opencontainers.image.description="Bridges the Kubernetes Cluster Inventory API ClusterProfile with Sveltos SveltosCluster." \
+      org.opencontainers.image.version="$GIT_VERSION" \
+      org.opencontainers.image.revision="$GIT_VERSION"
+
 WORKDIR /
 COPY --from=builder /workspace/manager .
 USER 65532:65532
