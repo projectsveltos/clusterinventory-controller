@@ -27,6 +27,7 @@ var (
 	ReconcileSveltosCluster       = reconcileSveltosCluster
 	DeleteSveltosCluster          = deleteSveltosCluster
 	DeleteKubeconfigSecret        = deleteKubeconfigSecret
+	InvokeExecPlugin              = invokeExecPlugin
 )
 
 const (
