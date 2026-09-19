@@ -24,6 +24,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -526,6 +527,82 @@ var _ = Describe("Utils", func() {
 			Expect(kc.AuthInfos[0].AuthInfo.Token).To(Equal("combined-token"))
 			Expect(kc.AuthInfos[0].AuthInfo.ClientCertificateData).To(Equal([]byte(testCertPEM)))
 			Expect(kc.AuthInfos[0].AuthInfo.ClientKeyData).To(Equal([]byte(testKeyPEM)))
+		})
+	})
+
+	Context("InitScheme", func() {
+		It("registers all types required by the controller", func() {
+			s, err := controller.InitScheme()
+			Expect(err).To(BeNil())
+			Expect(s.Recognizes(corev1.SchemeGroupVersion.WithKind("Secret"))).To(BeTrue())
+			Expect(s.Recognizes(apiextensionsv1.SchemeGroupVersion.WithKind("CustomResourceDefinition"))).To(BeTrue())
+			Expect(s.Recognizes(libsveltosv1beta1.GroupVersion.WithKind("SveltosCluster"))).To(BeTrue())
+			Expect(s.Recognizes(clusterinventoryv1alpha1.GroupVersion.WithKind("ClusterProfile"))).To(BeTrue())
+		})
+	})
+
+	Context("invokeExecPlugin", func() {
+		ap := &clusterinventoryv1alpha1.AccessProvider{
+			Cluster: clientcmdv1.Cluster{
+				Server:                   "https://cluster.example.com:6443",
+				CertificateAuthorityData: []byte("fake-ca-data"),
+			},
+		}
+
+		It("returns the status when the plugin reports a token", func() {
+			status, err := controller.InvokeExecPlugin(context.TODO(), "sh",
+				[]string{"-c", `echo '{"status":{"token":"my-token"}}'`}, nil, ap)
+			Expect(err).To(BeNil())
+			Expect(status.Token).To(Equal("my-token"))
+		})
+
+		It("returns the status when the plugin reports a client certificate", func() {
+			status, err := controller.InvokeExecPlugin(context.TODO(), "sh",
+				[]string{"-c", `echo '{"status":{"clientCertificateData":"cert-data","clientKeyData":"key-data"}}'`},
+				nil, ap)
+			Expect(err).To(BeNil())
+			Expect(status.ClientCertificateData).To(Equal("cert-data"))
+			Expect(status.ClientKeyData).To(Equal("key-data"))
+		})
+
+		It("passes the cluster server through KUBERNETES_EXEC_INFO", func() {
+			status, err := controller.InvokeExecPlugin(context.TODO(), "sh",
+				[]string{"-c", `echo "{\"status\":{\"token\":\"$(echo $KUBERNETES_EXEC_INFO | grep -o 'cluster.example.com[^\"]*')\"}}"`},
+				nil, ap)
+			Expect(err).To(BeNil())
+			Expect(status.Token).To(ContainSubstring("cluster.example.com"))
+		})
+
+		It("passes the given env vars through to the plugin", func() {
+			status, err := controller.InvokeExecPlugin(context.TODO(), "sh",
+				[]string{"-c", `echo "{\"status\":{\"token\":\"$MY_TOKEN_VAR\"}}"`},
+				[]string{"MY_TOKEN_VAR=from-env"}, ap)
+			Expect(err).To(BeNil())
+			Expect(status.Token).To(Equal("from-env"))
+		})
+
+		It("returns an error when the plugin exits with a non-zero status", func() {
+			_, err := controller.InvokeExecPlugin(context.TODO(), "sh", []string{"-c", "exit 1"}, nil, ap)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("exec plugin"))
+		})
+
+		It("returns an error when the plugin output is not valid JSON", func() {
+			_, err := controller.InvokeExecPlugin(context.TODO(), "sh", []string{"-c", "echo not-json"}, nil, ap)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("parsing exec plugin output"))
+		})
+
+		It("returns an error when the plugin returns no status", func() {
+			_, err := controller.InvokeExecPlugin(context.TODO(), "sh", []string{"-c", `echo '{}'`}, nil, ap)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("returned no status"))
+		})
+
+		It("returns an error when the status has neither a token nor a client certificate", func() {
+			_, err := controller.InvokeExecPlugin(context.TODO(), "sh", []string{"-c", `echo '{"status":{}}'`}, nil, ap)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("neither a token nor client certificate data"))
 		})
 	})
 })
