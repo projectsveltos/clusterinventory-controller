@@ -34,7 +34,7 @@ ARCH ?= amd64
 OS ?= $(shell uname -s | tr A-Z a-z)
 K8S_LATEST_VER ?= $(shell curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)
 export CONTROLLER_IMG ?= $(REGISTRY)/$(IMAGE_NAME)
-TAG ?= v1.16.0
+TAG ?= v1.17.0
 
 ## Tool Binaries
 CONTROLLER_GEN := $(TOOLS_BIN_DIR)/controller-gen
@@ -50,7 +50,7 @@ SETUP_ENVTEST_PKG := sigs.k8s.io/controller-runtime/tools/setup-envtest
 KIND := $(TOOLS_BIN_DIR)/kind
 KUBECTL := $(TOOLS_BIN_DIR)/kubectl
 
-GOLANGCI_LINT_VERSION := "v2.13.2"
+GOLANGCI_LINT_VERSION := "v2.15.0"
 
 KUSTOMIZE_VER := v5.8.0
 KUSTOMIZE_BIN := kustomize

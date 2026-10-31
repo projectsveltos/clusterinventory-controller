@@ -17,6 +17,11 @@
 
 </div>
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/projectsveltos/sveltos/main/docs/assets/logo.png" width="200">
+  <img src="https://raw.githubusercontent.com/projectsveltos/sveltos/main/docs/assets/mascott/admiral-sveltopus-fleet-whitebg.png" width="220" alt="Admiral Sveltopus, the Sveltos mascot">
+</p>
+
 ## What this repository is
 
 Bridges the [Kubernetes Cluster Inventory API](https://github.com/kubernetes-sigs/cluster-inventory-api) (`ClusterProfile`) with [Sveltos](https://github.com/projectsveltos) by creating and managing `SveltosCluster` resources.
