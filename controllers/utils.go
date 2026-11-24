@@ -36,7 +36,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	clientauthenticationv1 "k8s.io/client-go/pkg/apis/clientauthentication/v1"
 	clientcmdv1 "k8s.io/client-go/tools/clientcmd/api/v1"
-	clusterinventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
+	clusterinventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	"sigs.k8s.io/cluster-inventory-api/pkg/access"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
@@ -101,7 +101,7 @@ func InitScheme() (*runtime.Scheme, error) {
 	if err := libsveltosv1beta1.AddToScheme(s); err != nil {
 		return nil, err
 	}
-	if err := clusterinventoryv1alpha1.AddToScheme(s); err != nil {
+	if err := clusterinventoryv1alpha2.AddToScheme(s); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -126,7 +126,7 @@ func kubeconfigSecretName(cpName string) string {
 // before the token expires.
 func getKubeconfig(ctx context.Context, c client.Client,
 	accessCfg *access.Config,
-	cp *clusterinventoryv1alpha1.ClusterProfile, logger logr.Logger) ([]byte, *time.Time, error) {
+	cp *clusterinventoryv1alpha2.ClusterProfile, logger logr.Logger) ([]byte, *time.Time, error) {
 
 	if provider := findAccessProvider(cp, kubeconfigSecretReaderProviderName); provider != nil {
 		logger.V(logs.LogDebug).Info("using kubeconfig-secretreader access provider")
@@ -149,18 +149,12 @@ func getKubeconfig(ctx context.Context, c client.Client,
 }
 
 // findAccessProvider returns the first AccessProvider matching name.
-// AccessProviders is checked before the deprecated CredentialProviders field.
-func findAccessProvider(cp *clusterinventoryv1alpha1.ClusterProfile,
-	name string) *clusterinventoryv1alpha1.AccessProvider {
+func findAccessProvider(cp *clusterinventoryv1alpha2.ClusterProfile,
+	name string) *clusterinventoryv1alpha2.AccessProvider {
 
 	for i := range cp.Status.AccessProviders {
 		if cp.Status.AccessProviders[i].Name == name {
 			return &cp.Status.AccessProviders[i]
-		}
-	}
-	for i := range cp.Status.CredentialProviders {
-		if cp.Status.CredentialProviders[i].Name == name {
-			return &cp.Status.CredentialProviders[i]
 		}
 	}
 	return nil
@@ -169,7 +163,7 @@ func findAccessProvider(cp *clusterinventoryv1alpha1.ClusterProfile,
 // sourceSecretNamespacedName returns the "namespace/name" of the source Secret
 // referenced by the kubeconfig-secretreader access provider, or "" if the provider
 // is absent or carries no valid Secret reference.
-func sourceSecretNamespacedName(cp *clusterinventoryv1alpha1.ClusterProfile) string {
+func sourceSecretNamespacedName(cp *clusterinventoryv1alpha2.ClusterProfile) string {
 	provider := findAccessProvider(cp, kubeconfigSecretReaderProviderName)
 	if provider == nil {
 		return ""
@@ -195,7 +189,7 @@ func sourceSecretNamespacedName(cp *clusterinventoryv1alpha1.ClusterProfile) str
 // It reads the Secret reference from the provider's exec extension and returns
 // the kubeconfig bytes stored in that Secret.
 func getKubeconfigFromSecretReader(ctx context.Context, c client.Client,
-	cpNamespace string, provider *clusterinventoryv1alpha1.AccessProvider) ([]byte, error) {
+	cpNamespace string, provider *clusterinventoryv1alpha2.AccessProvider) ([]byte, error) {
 
 	var cfg secretReaderConfig
 	found := false
@@ -237,7 +231,7 @@ func getKubeconfigFromSecretReader(ctx context.Context, c client.Client,
 
 // reconcileKubeconfigSecret creates or updates the managed kubeconfig Secret for cp.
 func reconcileKubeconfigSecret(ctx context.Context, c client.Client,
-	cp *clusterinventoryv1alpha1.ClusterProfile, kubeconfigData []byte, logger logr.Logger) error {
+	cp *clusterinventoryv1alpha2.ClusterProfile, kubeconfigData []byte, logger logr.Logger) error {
 
 	secretName := kubeconfigSecretName(cp.Name)
 	logger = logger.WithValues("secret", fmt.Sprintf("%s/%s", cp.Namespace, secretName))
@@ -283,7 +277,7 @@ func reconcileKubeconfigSecret(ctx context.Context, c client.Client,
 // All labels from the ClusterProfile are copied so that Sveltos selectors can
 // match the SveltosCluster using the same labels. The managed-by label is
 // always added (and takes precedence) so the controller can identify its own objects.
-func sveltosClusterLabels(cp *clusterinventoryv1alpha1.ClusterProfile) map[string]string {
+func sveltosClusterLabels(cp *clusterinventoryv1alpha2.ClusterProfile) map[string]string {
 	labels := make(map[string]string, len(cp.Labels)+1)
 	for k, v := range cp.Labels {
 		labels[k] = v
@@ -312,7 +306,7 @@ func applyDisplayName(existing map[string]string, displayName string) map[string
 
 // reconcileSveltosCluster creates or updates the SveltosCluster for cp.
 func reconcileSveltosCluster(ctx context.Context, c client.Client,
-	cp *clusterinventoryv1alpha1.ClusterProfile, logger logr.Logger) error {
+	cp *clusterinventoryv1alpha2.ClusterProfile, logger logr.Logger) error {
 
 	secretName := kubeconfigSecretName(cp.Name)
 	logger = logger.WithValues("sveltoscluster", fmt.Sprintf("%s/%s", cp.Namespace, cp.Name))
@@ -371,7 +365,7 @@ func reconcileSveltosCluster(ctx context.Context, c client.Client,
 
 // deleteSveltosCluster deletes the SveltosCluster associated with cp.
 func deleteSveltosCluster(ctx context.Context, c client.Client,
-	cp *clusterinventoryv1alpha1.ClusterProfile, logger logr.Logger) error {
+	cp *clusterinventoryv1alpha2.ClusterProfile, logger logr.Logger) error {
 
 	sc := &libsveltosv1beta1.SveltosCluster{}
 	if err := c.Get(ctx, types.NamespacedName{Namespace: cp.Namespace, Name: cp.Name}, sc); err != nil {
@@ -387,7 +381,7 @@ func deleteSveltosCluster(ctx context.Context, c client.Client,
 
 // deleteKubeconfigSecret deletes the managed kubeconfig Secret for cp.
 func deleteKubeconfigSecret(ctx context.Context, c client.Client,
-	cp *clusterinventoryv1alpha1.ClusterProfile, logger logr.Logger) error {
+	cp *clusterinventoryv1alpha2.ClusterProfile, logger logr.Logger) error {
 
 	secretName := kubeconfigSecretName(cp.Name)
 	secret := &corev1.Secret{}
@@ -410,7 +404,7 @@ func deleteKubeconfigSecret(ctx context.Context, c client.Client,
 // needs no exec binary in its own pod.
 func getKubeconfigFromExecPlugin(ctx context.Context,
 	accessCfg *access.Config,
-	cp *clusterinventoryv1alpha1.ClusterProfile, logger logr.Logger) ([]byte, *time.Time, error) {
+	cp *clusterinventoryv1alpha2.ClusterProfile, logger logr.Logger) ([]byte, *time.Time, error) {
 
 	// BuildConfigFromCP handles provider lookup and KEP-5339 arg/env merging.
 	restCfg, err := accessCfg.BuildConfigFromCP(cp)
@@ -422,7 +416,7 @@ func getKubeconfigFromExecPlugin(ctx context.Context,
 	}
 
 	// Find the matching AccessProvider to get the cluster server address and CA.
-	var ap *clusterinventoryv1alpha1.AccessProvider
+	var ap *clusterinventoryv1alpha2.AccessProvider
 	for _, p := range accessCfg.Providers {
 		if found := findAccessProvider(cp, p.Name); found != nil {
 			ap = found
@@ -467,7 +461,7 @@ func getKubeconfigFromExecPlugin(ctx context.Context,
 // the status contains neither a token nor client certificate data.
 func invokeExecPlugin(ctx context.Context,
 	command string, args []string, envVars []string,
-	ap *clusterinventoryv1alpha1.AccessProvider) (*clientauthenticationv1.ExecCredentialStatus, error) {
+	ap *clusterinventoryv1alpha2.AccessProvider) (*clientauthenticationv1.ExecCredentialStatus, error) {
 
 	// Build KUBERNETES_EXEC_INFO: an ExecCredential carrying the cluster
 	// connection details so the plugin knows which cluster it is authenticating to.
