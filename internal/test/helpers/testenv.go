@@ -26,7 +26,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
-	clusterinventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
+	clusterinventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -74,7 +74,7 @@ func InitTestScheme() (*apimachineryscheme.Scheme, error) {
 	if err := libsveltosv1beta1.AddToScheme(s); err != nil {
 		return nil, err
 	}
-	if err := clusterinventoryv1alpha1.AddToScheme(s); err != nil {
+	if err := clusterinventoryv1alpha2.AddToScheme(s); err != nil {
 		return nil, err
 	}
 	return s, nil

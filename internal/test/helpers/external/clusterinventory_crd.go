@@ -24,13 +24,13 @@ import (
 
 const (
 	clusterInventoryGroup   = "multicluster.x-k8s.io"
-	clusterInventoryVersion = "v1alpha1"
+	clusterInventoryVersion = "v1alpha2"
 	crdSchemaTypeObject     = "object"
 )
 
 var (
 	// TestClusterProfileCRD is the programmatic CRD definition for
-	// multicluster.x-k8s.io/v1alpha1 ClusterProfile used in unit tests.
+	// multicluster.x-k8s.io/v1alpha2 ClusterProfile used in unit tests.
 	TestClusterProfileCRD = generateClusterProfileCRD()
 )
 

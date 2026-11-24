@@ -21,7 +21,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
-	clusterinventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
+	clusterinventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
@@ -35,11 +35,11 @@ import (
 func ClusterProfilePredicates(logger logr.Logger) predicate.Predicate {
 	return predicate.Funcs{
 		UpdateFunc: func(e event.UpdateEvent) bool {
-			newCP, ok := e.ObjectNew.(*clusterinventoryv1alpha1.ClusterProfile)
+			newCP, ok := e.ObjectNew.(*clusterinventoryv1alpha2.ClusterProfile)
 			if !ok {
 				return true
 			}
-			oldCP, ok := e.ObjectOld.(*clusterinventoryv1alpha1.ClusterProfile)
+			oldCP, ok := e.ObjectOld.(*clusterinventoryv1alpha2.ClusterProfile)
 			if !ok {
 				return true
 			}
@@ -53,10 +53,6 @@ func ClusterProfilePredicates(logger logr.Logger) predicate.Predicate {
 			// React when access providers change.
 			if !reflect.DeepEqual(newCP.Status.AccessProviders, oldCP.Status.AccessProviders) {
 				logger.V(logs.LogVerbose).Info("ClusterProfile access providers changed, will reconcile")
-				return true
-			}
-			if !reflect.DeepEqual(newCP.Status.CredentialProviders, oldCP.Status.CredentialProviders) {
-				logger.V(logs.LogVerbose).Info("ClusterProfile credential providers changed, will reconcile")
 				return true
 			}
 

@@ -26,7 +26,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	clusterinventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
+	clusterinventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	"sigs.k8s.io/cluster-inventory-api/pkg/access"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -70,7 +70,7 @@ func (r *ClusterProfileReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	logger := ctrl.LoggerFrom(ctx)
 	logger.V(logs.LogInfo).Info("Reconciling ClusterProfile")
 
-	cp := &clusterinventoryv1alpha1.ClusterProfile{}
+	cp := &clusterinventoryv1alpha2.ClusterProfile{}
 	if err := r.Get(ctx, req.NamespacedName, cp); err != nil {
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
@@ -87,7 +87,7 @@ func (r *ClusterProfileReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 }
 
 func (r *ClusterProfileReconciler) reconcileNormal(ctx context.Context,
-	cp *clusterinventoryv1alpha1.ClusterProfile, logger logr.Logger) (ctrl.Result, error) {
+	cp *clusterinventoryv1alpha2.ClusterProfile, logger logr.Logger) (ctrl.Result, error) {
 
 	logger.V(logs.LogDebug).Info("reconcileNormal")
 
@@ -131,7 +131,7 @@ func (r *ClusterProfileReconciler) reconcileNormal(ctx context.Context,
 }
 
 func (r *ClusterProfileReconciler) reconcileDelete(ctx context.Context,
-	cp *clusterinventoryv1alpha1.ClusterProfile, logger logr.Logger) error {
+	cp *clusterinventoryv1alpha2.ClusterProfile, logger logr.Logger) error {
 
 	logger.V(logs.LogDebug).Info("reconcileDelete")
 
@@ -157,10 +157,10 @@ func (r *ClusterProfileReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// Index ClusterProfiles by the source Secret they reference via kubeconfig-secretreader,
 	// so the Secret watch can enqueue the right ClusterProfile when a source Secret changes.
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(),
-		&clusterinventoryv1alpha1.ClusterProfile{},
+		&clusterinventoryv1alpha2.ClusterProfile{},
 		sourceSecretIndex,
 		func(obj client.Object) []string {
-			cp, ok := obj.(*clusterinventoryv1alpha1.ClusterProfile)
+			cp, ok := obj.(*clusterinventoryv1alpha2.ClusterProfile)
 			if !ok {
 				return nil
 			}
@@ -174,7 +174,7 @@ func (r *ClusterProfileReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&clusterinventoryv1alpha1.ClusterProfile{}).
+		For(&clusterinventoryv1alpha2.ClusterProfile{}).
 		WithEventFilter(ClusterProfilePredicates(mgr.GetLogger().WithValues("predicate", "clusterprofilepredicates"))).
 		Watches(
 			&corev1.Secret{},
@@ -196,7 +196,7 @@ func (r *ClusterProfileReconciler) sourceSecretToClusterProfiles(
 	}
 
 	ref := secret.Namespace + "/" + secret.Name
-	cpList := &clusterinventoryv1alpha1.ClusterProfileList{}
+	cpList := &clusterinventoryv1alpha2.ClusterProfileList{}
 	if err := r.List(ctx, cpList, client.MatchingFields{sourceSecretIndex: ref}); err != nil {
 		return nil
 	}

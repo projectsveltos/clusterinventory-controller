@@ -30,7 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	clientauthenticationv1 "k8s.io/client-go/pkg/apis/clientauthentication/v1"
 	clientcmdv1 "k8s.io/client-go/tools/clientcmd/api/v1"
-	clusterinventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
+	clusterinventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/yaml"
 
@@ -108,19 +108,6 @@ var _ = Describe("Utils", func() {
 			Expect(provider.Name).To(Equal("my-provider"))
 		})
 
-		It("falls back to CredentialProviders when not in AccessProviders", func() {
-			cp := &clusterinventoryv1alpha1.ClusterProfile{
-				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: namespace},
-				Status: clusterinventoryv1alpha1.ClusterProfileStatus{
-					CredentialProviders: []clusterinventoryv1alpha1.AccessProvider{
-						{Name: "legacy-provider"},
-					},
-				},
-			}
-			provider := controller.FindAccessProvider(cp, "legacy-provider")
-			Expect(provider).NotTo(BeNil())
-		})
-
 		It("returns nil when provider is not found", func() {
 			cp := buildClusterProfile("test", namespace, "other", nil)
 			Expect(controller.FindAccessProvider(cp, "not-there")).To(BeNil())
@@ -136,10 +123,10 @@ var _ = Describe("Utils", func() {
 
 			extRaw, err := json.Marshal(map[string]string{secretReaderNameField: "src-secret", secretReaderKeyField: srcSecretKey})
 			Expect(err).To(BeNil())
-			provider := &clusterinventoryv1alpha1.AccessProvider{
+			provider := &clusterinventoryv1alpha2.AccessProvider{
 				Name: controller.KubeconfigSecretReaderProvider,
-				Cluster: clientcmdv1.Cluster{
-					Extensions: []clientcmdv1.NamedExtension{
+				Cluster: clusterinventoryv1alpha2.Cluster{
+					Extensions: []clusterinventoryv1alpha2.NamedExtension{
 						{Name: controller.ExecExtensionKey, Extension: runtime.RawExtension{Raw: extRaw}},
 					},
 				},
@@ -151,9 +138,9 @@ var _ = Describe("Utils", func() {
 		})
 
 		It("returns error when exec extension is missing", func() {
-			provider := &clusterinventoryv1alpha1.AccessProvider{
+			provider := &clusterinventoryv1alpha2.AccessProvider{
 				Name:    controller.KubeconfigSecretReaderProvider,
-				Cluster: clientcmdv1.Cluster{},
+				Cluster: clusterinventoryv1alpha2.Cluster{},
 			}
 			_, err := controller.GetKubeconfigFromSecretReader(context.TODO(), testEnv.Client, namespace, provider)
 			Expect(err).To(HaveOccurred())
@@ -162,10 +149,10 @@ var _ = Describe("Utils", func() {
 
 		It("returns error when source Secret does not exist", func() {
 			extRaw, _ := json.Marshal(map[string]string{secretReaderNameField: "nonexistent", secretReaderKeyField: srcSecretKey})
-			provider := &clusterinventoryv1alpha1.AccessProvider{
+			provider := &clusterinventoryv1alpha2.AccessProvider{
 				Name: controller.KubeconfigSecretReaderProvider,
-				Cluster: clientcmdv1.Cluster{
-					Extensions: []clientcmdv1.NamedExtension{
+				Cluster: clusterinventoryv1alpha2.Cluster{
+					Extensions: []clusterinventoryv1alpha2.NamedExtension{
 						{Name: controller.ExecExtensionKey, Extension: runtime.RawExtension{Raw: extRaw}},
 					},
 				},
@@ -532,22 +519,22 @@ var _ = Describe("Utils", func() {
 
 // buildClusterProfile builds a minimal ClusterProfile for use in tests.
 func buildClusterProfile(name, namespace, providerName string,
-	execExtRaw []byte) *clusterinventoryv1alpha1.ClusterProfile {
+	execExtRaw []byte) *clusterinventoryv1alpha2.ClusterProfile {
 
-	cp := &clusterinventoryv1alpha1.ClusterProfile{
+	cp := &clusterinventoryv1alpha2.ClusterProfile{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
-		Spec: clusterinventoryv1alpha1.ClusterProfileSpec{
-			ClusterManager: clusterinventoryv1alpha1.ClusterManager{Name: "test-manager"},
+		Spec: clusterinventoryv1alpha2.ClusterProfileSpec{
+			ClusterManager: clusterinventoryv1alpha2.ClusterManager{Name: "test-manager"},
 		},
 	}
 	if providerName != "" {
-		cluster := clientcmdv1.Cluster{}
+		cluster := clusterinventoryv1alpha2.Cluster{}
 		if execExtRaw != nil {
-			cluster.Extensions = []clientcmdv1.NamedExtension{
+			cluster.Extensions = []clusterinventoryv1alpha2.NamedExtension{
 				{Name: controller.ExecExtensionKey, Extension: runtime.RawExtension{Raw: execExtRaw}},
 			}
 		}
-		cp.Status.AccessProviders = []clusterinventoryv1alpha1.AccessProvider{
+		cp.Status.AccessProviders = []clusterinventoryv1alpha2.AccessProvider{
 			{Name: providerName, Cluster: cluster},
 		}
 	}

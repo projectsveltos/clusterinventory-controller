@@ -44,7 +44,7 @@ import (
 	clientcmdv1 "k8s.io/client-go/tools/clientcmd/api/v1"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/cluster-api/util"
-	clusterinventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
+	clusterinventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
@@ -140,7 +140,7 @@ var _ = BeforeSuite(func() {
 
 	Expect(clientgoscheme.AddToScheme(scheme)).To(Succeed())
 	Expect(libsveltosv1beta1.AddToScheme(scheme)).To(Succeed())
-	Expect(clusterinventoryv1alpha1.AddToScheme(scheme)).To(Succeed())
+	Expect(clusterinventoryv1alpha2.AddToScheme(scheme)).To(Succeed())
 	Expect(appsv1.AddToScheme(scheme)).To(Succeed())
 
 	var err error

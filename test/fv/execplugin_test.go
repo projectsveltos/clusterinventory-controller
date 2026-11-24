@@ -30,7 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	clientcmdv1 "k8s.io/client-go/tools/clientcmd/api/v1"
 	"k8s.io/client-go/util/retry"
-	clusterinventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
+	clusterinventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	"sigs.k8s.io/yaml"
 
 	libsveltosv1beta1 "github.com/projectsveltos/libsveltos/api/v1beta1"
@@ -52,7 +52,7 @@ var _ = Describe("ClusterProfile exec-plugin provider", Label("FV-EXECPLUGIN"), 
 	})
 
 	AfterEach(func() {
-		cp := &clusterinventoryv1alpha1.ClusterProfile{}
+		cp := &clusterinventoryv1alpha2.ClusterProfile{}
 		if err := k8sClient.Get(context.TODO(),
 			types.NamespacedName{Namespace: namespace, Name: cpName}, cp); err == nil {
 			cp.Finalizers = nil
@@ -67,20 +67,20 @@ var _ = Describe("ClusterProfile exec-plugin provider", Label("FV-EXECPLUGIN"), 
 
 	It("creates SveltosCluster and kubeconfig Secret using exec-plugin provider, and SveltosCluster becomes Ready", func() {
 		Byf("Creating ClusterProfile %s/%s with exec-plugin access provider", namespace, cpName)
-		cp := &clusterinventoryv1alpha1.ClusterProfile{
+		cp := &clusterinventoryv1alpha2.ClusterProfile{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      cpName,
 				Namespace: namespace,
 			},
-			Spec: clusterinventoryv1alpha1.ClusterProfileSpec{
-				ClusterManager: clusterinventoryv1alpha1.ClusterManager{Name: "fv-exec-plugin-manager"},
+			Spec: clusterinventoryv1alpha2.ClusterProfileSpec{
+				ClusterManager: clusterinventoryv1alpha2.ClusterManager{Name: "fv-exec-plugin-manager"},
 			},
 		}
 		Expect(k8sClient.Create(context.TODO(), cp)).To(Succeed())
 
 		Byf("Setting ClusterProfile status with exec-plugin AccessProvider pointing at workload cluster")
 		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			currentCP := &clusterinventoryv1alpha1.ClusterProfile{}
+			currentCP := &clusterinventoryv1alpha2.ClusterProfile{}
 			err := k8sClient.Get(context.TODO(), types.NamespacedName{
 				Namespace: cp.Namespace, Name: cp.Name},
 				currentCP)
@@ -157,19 +157,19 @@ var _ = Describe("ClusterProfile exec-plugin provider", Label("FV-EXECPLUGIN"), 
 	})
 })
 
-func buildExecPluginAccessProviderStatus() clusterinventoryv1alpha1.ClusterProfileStatus {
+func buildExecPluginAccessProviderStatus() clusterinventoryv1alpha2.ClusterProfileStatus {
 	// The exec-plugin extension payload carries cluster-specific config;
 	// for the FV test binary it is not read, so we pass a minimal object.
 	extRaw, _ := json.Marshal(map[string]string{"provider": execPluginProviderName})
 
-	return clusterinventoryv1alpha1.ClusterProfileStatus{
-		AccessProviders: []clusterinventoryv1alpha1.AccessProvider{
+	return clusterinventoryv1alpha2.ClusterProfileStatus{
+		AccessProviders: []clusterinventoryv1alpha2.AccessProvider{
 			{
 				Name: execPluginProviderName,
-				Cluster: clientcmdv1.Cluster{
+				Cluster: clusterinventoryv1alpha2.Cluster{
 					Server:                   workloadClusterServer,
 					CertificateAuthorityData: workloadClusterCAData,
-					Extensions: []clientcmdv1.NamedExtension{
+					Extensions: []clusterinventoryv1alpha2.NamedExtension{
 						{
 							Name:      execExtensionKey,
 							Extension: runtime.RawExtension{Raw: extRaw},

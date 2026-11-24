@@ -29,9 +29,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	clientcmdv1 "k8s.io/client-go/tools/clientcmd/api/v1"
 	"k8s.io/client-go/util/retry"
-	clusterinventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
+	clusterinventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	libsveltosv1beta1 "github.com/projectsveltos/libsveltos/api/v1beta1"
@@ -59,7 +58,7 @@ var _ = Describe("ClusterProfile controller", Label("FV"), func() {
 
 	AfterEach(func() {
 		// Best-effort cleanup; test may have already deleted resources.
-		cp := &clusterinventoryv1alpha1.ClusterProfile{}
+		cp := &clusterinventoryv1alpha2.ClusterProfile{}
 		if err := k8sClient.Get(context.TODO(),
 			types.NamespacedName{Namespace: namespace, Name: cpName}, cp); err == nil {
 			// Remove finalizer so the API server can delete it immediately.
@@ -89,7 +88,7 @@ var _ = Describe("ClusterProfile controller", Label("FV"), func() {
 		Expect(k8sClient.Create(context.TODO(), cp)).To(Succeed())
 
 		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			currentCP := &clusterinventoryv1alpha1.ClusterProfile{}
+			currentCP := &clusterinventoryv1alpha2.ClusterProfile{}
 			err := k8sClient.Get(context.TODO(), types.NamespacedName{
 				Namespace: cp.Namespace, Name: cp.Name},
 				currentCP)
@@ -207,7 +206,7 @@ var _ = Describe("ClusterProfile controller", Label("FV"), func() {
 		Expect(k8sClient.Create(context.TODO(), cp)).To(Succeed())
 
 		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			currentCP := &clusterinventoryv1alpha1.ClusterProfile{}
+			currentCP := &clusterinventoryv1alpha2.ClusterProfile{}
 			if err := k8sClient.Get(context.TODO(),
 				types.NamespacedName{Namespace: cp.Namespace, Name: cp.Name}, currentCP); err != nil {
 				return err
@@ -229,19 +228,19 @@ var _ = Describe("ClusterProfile controller", Label("FV"), func() {
 	})
 })
 
-func buildFvClusterProfile(name, namespace string) *clusterinventoryv1alpha1.ClusterProfile {
-	return &clusterinventoryv1alpha1.ClusterProfile{
+func buildFvClusterProfile(name, namespace string) *clusterinventoryv1alpha2.ClusterProfile {
+	return &clusterinventoryv1alpha2.ClusterProfile{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
 		},
-		Spec: clusterinventoryv1alpha1.ClusterProfileSpec{
-			ClusterManager: clusterinventoryv1alpha1.ClusterManager{Name: "fv-manager"},
+		Spec: clusterinventoryv1alpha2.ClusterProfileSpec{
+			ClusterManager: clusterinventoryv1alpha2.ClusterManager{Name: "fv-manager"},
 		},
 	}
 }
 
-func buildFvAccessProviderStatus(secretName, secretKey, namespace string) clusterinventoryv1alpha1.ClusterProfileStatus {
+func buildFvAccessProviderStatus(secretName, secretKey, namespace string) clusterinventoryv1alpha2.ClusterProfileStatus {
 	extPayload := map[string]string{
 		keyName:     secretName,
 		"key":       secretKey,
@@ -249,13 +248,13 @@ func buildFvAccessProviderStatus(secretName, secretKey, namespace string) cluste
 	}
 	extRaw, _ := json.Marshal(extPayload)
 
-	return clusterinventoryv1alpha1.ClusterProfileStatus{
-		AccessProviders: []clusterinventoryv1alpha1.AccessProvider{
+	return clusterinventoryv1alpha2.ClusterProfileStatus{
+		AccessProviders: []clusterinventoryv1alpha2.AccessProvider{
 			{
 				Name: kubeconfigSecretReaderProvider,
-				Cluster: clientcmdv1.Cluster{
+				Cluster: clusterinventoryv1alpha2.Cluster{
 					Server: "https://fake-server:6443",
-					Extensions: []clientcmdv1.NamedExtension{
+					Extensions: []clusterinventoryv1alpha2.NamedExtension{
 						{
 							Name:      execExtensionKey,
 							Extension: runtime.RawExtension{Raw: extRaw},
